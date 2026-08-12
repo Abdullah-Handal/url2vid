@@ -19,28 +19,40 @@ echo(
 echo   url2vid - starting up
 echo(
 
-where python >/dev/null 2>&1
-if errorlevel 1 (
+REM Windows often ships the "py" launcher without "python" on PATH.
+set "PYBOOT="
+where python >nul 2>&1 && set "PYBOOT=python"
+if not defined PYBOOT (where py >nul 2>&1 && set "PYBOOT=py -3")
+if not defined PYBOOT (
   echo   [X] Python is not installed, or not on PATH.
   echo       Get it from https://python.org/downloads - tick "Add Python to PATH".
   goto fail
 )
 
-where npm >/dev/null 2>&1
+REM nvm-windows and per-user installs are not always on PATH. Look in the
+REM usual places before claiming Node is missing. %ProgramFiles(x86)% is
+REM deliberately not checked: its bracket breaks parsing inside a block.
+where npm >nul 2>&1
 if errorlevel 1 (
-  echo   [X] Node.js is not installed, or not on PATH.
+  for %%D in ("%ProgramFiles%\nodejs" "%LOCALAPPDATA%\Programs\nodejs" "%APPDATA%\npm") do (
+    if exist "%%~D\npm.cmd" set "PATH=%%~D;!PATH!"
+  )
+)
+where npm >nul 2>&1
+if errorlevel 1 (
+  echo   [X] Node.js is not installed, or not where this script can see it.
   echo       Get it from https://nodejs.org
   goto fail
 )
 
-where ffmpeg >/dev/null 2>&1
+where ffmpeg >nul 2>&1
 if errorlevel 1 (
   echo   [!] ffmpeg is missing - video and audio cannot be merged into one file.
   echo       Install it with:  winget install Gyan.FFmpeg
 )
 
 REM Already running? Point the browser at it instead of failing on a port clash.
-curl -fsS -m 2 "http://127.0.0.1:%PORT%/api/config" >/dev/null 2>&1
+curl -fsS -m 2 "http://127.0.0.1:%PORT%/api/config" >nul 2>&1
 if not errorlevel 1 (
   echo   [OK] Already running on port %PORT% - opening it.
   start "" "http://127.0.0.1:%PORT%"
@@ -49,11 +61,11 @@ if not errorlevel 1 (
 
 if not exist "%PY%" (
   echo   Creating the Python environment ^(first run only^)...
-  python -m venv .venv || goto fail
+  %PYBOOT% -m venv .venv || goto fail
 )
 
 REM Cheap presence check rather than a pip install on every launch.
-"%PY%" -c "import fastapi, uvicorn, yt_dlp" >/dev/null 2>&1
+"%PY%" -c "import fastapi, uvicorn, yt_dlp" >nul 2>&1
 if errorlevel 1 (
   echo   Installing Python packages ^(first run only^)...
   "%PY%" -m pip install --quiet --upgrade pip || goto fail
@@ -87,7 +99,7 @@ exit /b %errorlevel%
 :openwhenready
 set "PORT=%~2"
 for /l %%i in (1,1,60) do (
-  curl -fsS -m 1 "http://127.0.0.1:%PORT%/api/config" >/dev/null 2>&1
+  curl -fsS -m 1 "http://127.0.0.1:%PORT%/api/config" >nul 2>&1
   if not errorlevel 1 (
     start "" "http://127.0.0.1:%PORT%"
     exit /b 0

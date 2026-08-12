@@ -42,9 +42,49 @@ need() {
 
 say "${bold}url2vid${off} — starting up"
 
+# nvm, fnm and volta install node under the user's home and only put it on
+# PATH from ~/.bashrc, which an interactive terminal reads and a double-clicked
+# launcher does not. Go looking for it before claiming it is missing, or this
+# script tells people to install software they already have.
+ensure_node() {
+  have_node && return 0
+
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$nvm_dir/nvm.sh" ]; then
+    # nvm.sh is not written for `set -eu`, and its exit status is not ours.
+    set +eu
+    # shellcheck source=/dev/null
+    . "$nvm_dir/nvm.sh" >/dev/null 2>&1 || true
+    set -eu
+    have_node && return 0
+  fi
+
+  # No nvm script, or it selected nothing: take the newest version on disk.
+  local newest
+  newest="$(find "$nvm_dir/versions/node" -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -1)"
+  [ -n "$newest" ] && PATH="$newest:$PATH"
+
+  local dir
+  for dir in "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin" \
+             "$HOME/.asdf/shims" /snap/bin /usr/local/bin; do
+    [ -x "$dir/node" ] && PATH="$dir:$PATH"
+  done
+  export PATH
+
+  have_node
+}
+
+have_node() { command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; }
+
 need python3 "Install it with: sudo apt install python3 python3-venv"
-need node    "Install it with: sudo apt install nodejs npm"
-need npm     "Install it with: sudo apt install nodejs npm"
+
+if ! ensure_node; then
+  warn "Node.js is not installed, or not where this script can see it."
+  warn "Install it with: sudo apt install nodejs npm"
+  warn "Already have it through nvm? Run this from a terminal instead, or run:"
+  warn "  ${dim}source ~/.nvm/nvm.sh && ./start-web.sh${off}"
+  exit 1
+fi
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   warn "ffmpeg is missing — video and audio cannot be merged into one file."

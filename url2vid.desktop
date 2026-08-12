@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=url2vid
+GenericName=Video Downloader
+Comment=Paste a video URL and download it
+Exec="/home/abdullah/Desktop/Abood Prv/url2vid/start-web.sh"
+Path=/home/abdullah/Desktop/Abood Prv/url2vid
+Icon=video-x-generic
+Terminal=true
+Categories=AudioVideo;Video;
+Keywords=video;download;youtube;yt-dlp;

@@ -1,0 +1,4 @@
+# cmd.exe needs CRLF; normalising this file would break the launcher on
+# Windows checkouts.
+*.bat text eol=crlf
+*.sh  text eol=lf

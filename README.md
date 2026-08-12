@@ -117,7 +117,35 @@ the list — while the URL box has focus it receives those keystrokes as text.
 
 Files land in `downloads/`.
 
-**Web UI** — a React + TypeScript page over the same download engine:
+**Web UI** — a React + TypeScript page over the same download engine.
+
+One tap:
+
+| System | File |
+|---|---|
+| Ubuntu / Linux | `./start-web.sh` |
+| Windows | `start-web.bat` (double-click) |
+
+The launcher creates the virtualenv, installs the Python and npm packages,
+builds the page, starts the server and opens your browser. Everything already
+in place is skipped, so only the first run is slow. Launch it a second time
+while it is already running and it just opens the tab. Closing the window
+stops the server rather than leaving it holding the port.
+
+Pass a port to either one if 8000 is taken: `./start-web.sh` reads `PORT`
+(`PORT=9000 ./start-web.sh`), and the `.bat` takes it as an argument
+(`start-web.bat 9000`).
+
+**To launch it from the Ubuntu apps menu**, install the bundled desktop entry:
+
+```bash
+cp url2vid.desktop ~/.local/share/applications/
+```
+
+It is also double-clickable from the Desktop after right-click → *Allow
+Launching*.
+
+By hand, if you would rather:
 
 ```bash
 cd web && npm install && npm run build && cd ..
@@ -181,6 +209,9 @@ than guessed and the row falls back to yt-dlp's own estimate.
 | `app/tui.py` | the terminal dashboard |
 | `app/cli.py` | one-shot mode |
 | `run_web.py` | entry point for the web UI |
+| `start-web.sh` | one-tap launcher for Linux (setup, build, serve, open) |
+| `start-web.bat` | the same for Windows |
+| `url2vid.desktop` | Ubuntu apps-menu entry |
 | `server/main.py` | FastAPI routes and the SSE job stream |
 | `web/src/folder.ts` | folder picking, persistence, and writing files to disk |
 | `web/src/App.tsx` | web UI state and orchestration |

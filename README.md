@@ -27,21 +27,58 @@ python3 -m venv .venv
 .venv/bin/python url2vid.py
 ```
 
-Paste a URL, press Enter, pick a resolution from the dropdown, and it starts.
+Paste a URL and press **Enter** (or click **Fetch**). The video's title and
+source appear as soon as they are known:
+
+```
+  https://www.youtube.com/watch?v=aqz-KE-bpKQ            [ Fetch ]
+
+█ Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film
+█ Youtube · 10:35 · 8 resolutions
+
+  [ Best available     ▾ ]   [ Download ]
+
+✓ Found "Big Buck Bunny 60fps 4K…" — pick a resolution and press Download.
+```
+
+Pick a resolution, press **Download**, and the row appears in the table below.
 Paste another while the first is still running; up to three download at once
 and the rest queue.
 
+**Direct links download themselves.** A URL that already points at a media file
+— `.mp4`, `.mkv`, `.webm`, `.m3u8` and friends, with or without a signed query
+string — has no resolution to choose, so it is fetched for its title and then
+starts immediately without a second click. The same applies to any site that
+only serves one pre-muxed stream.
+
 ```
-NAME                             RES PROGRESS                  %     LEFT      SPEED      SIZE
-Caminandes: Llamigos           1080p ████████████████████ 100.0%     done              85.8 MB
-Tears of Steel                  best ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌     --  waiting
-Sintel - Official Trailer       720p ████████████████████ 100.0%  merging              45.8 MB
-Big Buck Bunny 60fps 4K - Ble… 1080p █████████████░░░░░░░  63.9%   1m 03s   1.3 MB/s  234.3 MB
+NAME                           RES PROGRESS                  %     LEFT      SPEED      SIZE
+Caminandes: Llamigos         1080p ████████████████████ 100.0%     done              85.8 MB
+Tears of Steel                best ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌     --  waiting
+Sintel - Official Trailer     720p ████████████████████ 100.0%  merging              45.8 MB
+Big Buck Bunny 60fps 4K…     1080p █████████████░░░░░░░  63.9%   1m 03s   1.3 MB/s  234.3 MB
 ```
+
+### Feedback
+
+Every action reports back on the message line under the input, so nothing fails
+quietly:
+
+| Situation | What you see |
+|---|---|
+| Fetch with an empty box | `! Nothing to fetch — paste a video URL in the box first.` |
+| URL without a scheme | `✗ That is not a full URL. It has to start with http:// or https://` |
+| Lookup in flight | `◐ Searching that link for a video…` and the button reads *Searching…* |
+| No video on the page | `✗ No video found there — [generic] …: HTTP Error 404: Not Found` |
+| Download finished | `✓ Saved <filename> to <folder>` |
+| Download failed | `✗ <title> failed — <the site's own reason>` |
+
+A failed row is also drawn in red in the table, but its message is trimmed to
+fit the column — the message line always carries the full text.
 
 | Key | Action |
 |---|---|
-| `Enter` | look up the URL in the box |
+| `Enter` | look up the URL in the box (same as the **Fetch** button) |
 | `Esc` | move focus to the download list |
 | `F2` | jump back to the URL box |
 | `F3` | cancel the selected download |

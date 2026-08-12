@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from rich.markup import escape
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.css.query import NoMatches
-from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    ListItem,
+    ListView,
+    Select,
+    Static,
+)
 
 from . import downloader, jobs
 from .jobs import registry
@@ -23,13 +34,48 @@ STATUS_STYLE = {
     jobs.CANCELLED: ("grey50", "cancelled"),
 }
 
-# Column widths, sized so a full row fits inside a 100-column terminal.
-NAME_WIDTH = 30
+# Severity styling for the message line: colour plus a leading glyph, so the
+# kind of message is readable even where colour is washed out.
+MESSAGE_STYLE = {
+    "info": ("cyan", "•"),
+    "busy": ("bright_yellow", "◐"),
+    "ok": ("bright_green", "✓"),
+    "warn": ("bright_yellow", "!"),
+    "error": ("bright_red", "✗"),
+}
+
+# A link ending in one of these *is* the video, so there is no resolution to
+# choose and the download can start as soon as the title is known.
+DIRECT_SUFFIXES = (
+    ".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi",
+    ".flv", ".ts", ".mp3", ".m4a", ".m3u8", ".mpd",
+)
+
+# Column widths. The total below must stay inside a 100-column terminal
+# once the list's own indent is taken off; test_row_fits_a_100_column_terminal
+# pins it.
+NAME_WIDTH = 28
 BAR_WIDTH = 20
+# Columns the ListItem padding eats on each side of every row.
+LIST_INDENT = 2
 HEADINGS = (
     f"{'NAME':<{NAME_WIDTH}} {'RES':>5} {'PROGRESS':<{BAR_WIDTH}} "
     f"{'%':>6} {'LEFT':>8} {'SPEED':>10} {'SIZE':>9}"
 )
+ROW_WIDTH = len(HEADINGS)
+# What is left for an error message after the name column and the "✗ " marker.
+# Derived rather than hard-coded so the row cannot silently outgrow the table.
+ERROR_WIDTH = ROW_WIDTH - NAME_WIDTH - 3
+
+
+def is_direct_media(url: str) -> bool:
+    """True when the URL points straight at a media file.
+
+    Checked on the path only: a query string like ``?token=…`` is common on
+    signed download links and must not hide the extension.
+    """
+    path = urlparse(url).path.lower()
+    return path.endswith(DIRECT_SUFFIXES)
 
 
 def render_bar(pct: float | None, colour: str) -> str:
@@ -53,7 +99,9 @@ def render_row(job: dict) -> str:
     name = f"[bold]{escape(_fit(job['title'], NAME_WIDTH))}[/]"
 
     if job["status"] == jobs.ERROR:
-        detail = _fit(job.get("error") or "failed", 62)
+        # Trimmed to keep the row on one line; the untrimmed text is repeated
+        # in the message panel when the job fails.
+        detail = _fit(job.get("error") or "failed", ERROR_WIDTH)
         return f"{name} [bright_red]✗ {escape(detail)}[/]"
 
     pct = job["percent"]
@@ -74,19 +122,46 @@ def render_row(job: dict) -> str:
     return f"{name} {res} {bar} {pct_text} {left} {speed} {size}"
 
 
+def describe_found(info: dict) -> str:
+    """The one-line summary shown under a video's title after a successful fetch."""
+    bits = []
+    if info.get("extractor"):
+        bits.append(str(info["extractor"]))
+    duration = info.get("duration")
+    if duration:
+        total = int(duration)
+        bits.append(f"{total // 60}:{total % 60:02d}")
+    count = len(info.get("formats") or [])
+    bits.append(f"{count} resolution{'s' if count != 1 else ''}" if count else "single stream")
+    if info.get("note"):
+        bits.append(str(info["note"]))
+    return " · ".join(bits)
+
+
 class Url2VidApp(App):
-    """Paste a URL, pick a resolution, watch it download."""
+    """Paste a URL, fetch it, watch it download."""
 
     CSS = """
     Screen { background: $surface; }
     #entry { height: auto; padding: 1 2 0 2; }
+    #choose, #entry { align-vertical: top; }
     #url { width: 1fr; }
-    #res { width: 28; margin-left: 1; }
-    #status { padding: 0 2; height: 1; color: $text-muted; }
-    #headings { padding: 0 2; height: 1; color: $text-muted; text-style: bold; }
-    #list { height: 1fr; border: none; background: $surface; padding: 0 1; }
-    ListItem { background: $surface; padding: 0 1; }
+    #fetch { min-width: 12; margin-left: 1; }
+    #found {
+        height: auto; max-height: 3; padding: 0 1; margin: 1 2 0 2;
+        border-left: thick $success; background: $boost; display: none;
+    }
+    #choose { height: auto; padding: 1 2 0 2; display: none; }
+    #res { width: 30; }
+    #go { min-width: 14; margin-left: 1; }
+    #message { height: auto; max-height: 4; padding: 1 2 0 2; }
+    #headings { padding: 1 2 0 2; height: 2; color: $text-muted; text-style: bold; }
+    #list { height: 1fr; border: none; background: $surface; padding: 0; }
+    ListItem { background: $surface; padding: 0 2; }
     ListItem.--highlight { background: $primary-darken-2; }
+    /* Rows are fixed-width by design; wrapping one would double its height and
+       shear the whole table. Narrow terminals clip instead. */
+    ListItem Static { text-wrap: nowrap; text-overflow: ellipsis; }
     """
 
     # The URL box holds focus by default and swallows plain letters, so each
@@ -110,14 +185,20 @@ class Url2VidApp(App):
         self._pending_title: str = ""
         self._revision = -1
         self._row_ids: list[str] = []
+        # Last status announced per job, so each finish or failure is reported
+        # in the message panel exactly once.
+        self._announced: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical(id="entry"):
-            with Horizontal():
-                yield Input(placeholder="Paste a video URL and press Enter…", id="url")
-                yield Select([], prompt="Resolution", id="res", disabled=True)
-        yield Static("", id="status")
+        with Horizontal(id="entry"):
+            yield Input(placeholder="Paste a video URL and press Enter…", id="url")
+            yield Button("Fetch", variant="primary", id="fetch")
+        yield Static("", id="found")
+        with Horizontal(id="choose"):
+            yield Select([], prompt="Choose a resolution", id="res")
+            yield Button("Download", variant="success", id="go")
+        yield Static("", id="message")
         yield Static(HEADINGS, id="headings")
         yield ListView(id="list")
         yield Footer()
@@ -125,28 +206,83 @@ class Url2VidApp(App):
     def on_mount(self) -> None:
         self.query_one("#url", Input).focus()
         self.set_interval(0.2, self.refresh_jobs)
-        self.set_status("Ready — paste a link above. Esc selects downloads, F4 clears finished.", "cyan")
+        self.say("Paste a link and press Enter or click Fetch.", "info")
 
     # ---------------------------------------------------------------- helpers
 
-    def set_status(self, message: str, colour: str = "white") -> None:
+    def say(self, message: str, kind: str = "info") -> None:
+        """Put a message in the panel under the input. Never silently drops."""
+        colour, glyph = MESSAGE_STYLE.get(kind, ("white", "•"))
         try:
-            self.query_one("#status", Static).update(f"[{colour}]{escape(message)}[/]")
+            self.query_one("#message", Static).update(
+                f"[{colour}]{glyph} {escape(message)}[/]"
+            )
         except NoMatches:
             pass
 
+    def show_found(self, title: str, detail: str) -> None:
+        """Reveal the found-video panel with its title and summary line."""
+        try:
+            panel = self.query_one("#found", Static)
+        except NoMatches:
+            return
+        panel.update(f"[bold bright_white]{escape(title)}[/]\n[dim]{escape(detail)}[/]")
+        panel.styles.display = "block"
+
+    def hide_found(self) -> None:
+        """Clear the whole result area, ready for a fresh lookup."""
+        for widget_id in ("#found", "#choose"):
+            self._hide(widget_id)
+
+    def hide_choose(self) -> None:
+        """Put the picker away but leave the title on screen.
+
+        Once a download starts the resolution question is answered, yet the
+        title is still the useful thing to be looking at.
+        """
+        self._hide("#choose")
+
+    def _hide(self, widget_id: str) -> None:
+        try:
+            self.query_one(widget_id).styles.display = "none"
+        except NoMatches:
+            pass
+
+    def set_busy(self, busy: bool) -> None:
+        """Flip the Fetch button between idle and in-flight."""
+        try:
+            button = self.query_one("#fetch", Button)
+        except NoMatches:
+            return
+        button.disabled = busy
+        button.label = "Searching…" if busy else "Fetch"
+
     # ------------------------------------------------------------- probe flow
+
+    @on(Button.Pressed, "#fetch")
+    def handle_fetch_click(self, event: Button.Pressed) -> None:
+        self.start_probe(self.query_one("#url", Input).value)
 
     @on(Input.Submitted, "#url")
     def handle_url(self, event: Input.Submitted) -> None:
-        url = event.value.strip()
+        self.start_probe(event.value)
+
+    def start_probe(self, raw: str) -> None:
+        """Validate the URL and kick off a lookup, reporting every rejection."""
+        url = raw.strip()
         if not url:
+            self.say("Nothing to fetch — paste a video URL in the box first.", "warn")
             return
         if not url.startswith(("http://", "https://")):
-            self.set_status("That needs to be a full URL starting with http:// or https://", "bright_red")
+            self.say(
+                "That is not a full URL. It has to start with http:// or https://",
+                "error",
+            )
             return
-        self.set_status(f"Fetching info for {url} …", "bright_yellow")
-        self.query_one("#res", Select).disabled = True
+        self.hide_found()
+        self._pending_url = None
+        self.set_busy(True)
+        self.say("Searching that link for a video…", "busy")
         self.probe_url(url)
 
     @work(thread=True, exclusive=True)
@@ -156,43 +292,68 @@ class Url2VidApp(App):
             info = downloader.probe(url)
         except Exception as exc:  # noqa: BLE001 - show the site's own reason
             message = downloader.clean_error(str(exc))
-            self.call_from_thread(self.set_status, f"Couldn't read that link: {message}", "bright_red")
+            self.call_from_thread(self.probe_failed, message)
             return
         self.call_from_thread(self.show_formats, url, info)
 
+    def probe_failed(self, message: str) -> None:
+        self.set_busy(False)
+        self.say(f"No video found there — {message}", "error")
+
     def show_formats(self, url: str, info: dict) -> None:
+        """Report what was found, then either offer resolutions or just go."""
+        self.set_busy(False)
+        self._pending_url = url
+        self._pending_title = info["title"]
+        self.show_found(info["title"], describe_found(info))
+
+        formats = info.get("formats") or []
+        # A direct file link, or a site serving one pre-muxed stream, leaves
+        # nothing to choose — asking would be a pointless extra click.
+        if not formats or is_direct_media(url):
+            self.begin_download(None)
+            return
+
         options = [("Best available", "best")]
-        for fmt in info["formats"]:
+        for fmt in formats:
             label = fmt["label"] + (f"  ({fmt['size_label']})" if fmt["size_label"] else "")
             options.append((label, str(fmt["height"])))
 
         select = self.query_one("#res", Select)
         select.set_options(options)
-        select.disabled = False
-        self._pending_url = url
-        self._pending_title = info["title"]
-
-        note = f" — {info['note']}" if info.get("note") else ""
-        source = f" [{info['extractor']}]" if info.get("extractor") else ""
-        self.set_status(f"{info['title']}{source}{note}  →  choose a resolution", "bright_green")
-        select.focus()
-        select.expanded = True
-
-    @on(Select.Changed, "#res")
-    def handle_resolution(self, event: Select.Changed) -> None:
-        if event.value is Select.BLANK or self._pending_url is None:
-            return
-        height = None if event.value == "best" else int(event.value)
-        downloader.start(self._pending_url, height, self._pending_title)
-        self.set_status(
-            f"Downloading {self._pending_title} at {height or 'best'}{'p' if height else ''}",
-            "bright_cyan",
+        select.value = "best"
+        self.query_one("#choose").styles.display = "block"
+        self.say(
+            f"Found “{info['title']}” — pick a resolution and press Download.", "ok"
         )
+        select.focus()
+
+    # ---------------------------------------------------------- download flow
+
+    @on(Button.Pressed, "#go")
+    def handle_go(self, event: Button.Pressed) -> None:
+        if self._pending_url is None:
+            self.say("Fetch a link first, then press Download.", "warn")
+            return
+        value = self.query_one("#res", Select).value
+        if value is Select.BLANK:
+            self.say("Pick a resolution from the list first.", "warn")
+            return
+        self.begin_download(None if value == "best" else int(value))
+
+    def begin_download(self, height: int | None) -> None:
+        """Queue the pending URL and reset the entry row for the next link."""
+        if self._pending_url is None:
+            self.say("Fetch a link first, then press Download.", "warn")
+            return
+        downloader.start(self._pending_url, height, self._pending_title)
+        quality = f"{height}p" if height else "best quality"
+        self.say(f"Downloading “{self._pending_title}” at {quality}…", "ok")
 
         self._pending_url = None
+        self.hide_choose()
         select = self.query_one("#res", Select)
         select.set_options([])
-        select.disabled = True
         url_input = self.query_one("#url", Input)
         url_input.value = ""
         url_input.focus()
@@ -225,6 +386,30 @@ class Url2VidApp(App):
                 except NoMatches:
                     pass  # row not mounted yet; the next tick will catch it
         self._revision = revision
+        self.announce(job_list)
+
+    def announce(self, job_list: list[dict]) -> None:
+        """Report each job's outcome in the message panel, once.
+
+        A row that turns red is easy to miss and its error is trimmed to fit,
+        so every finish and failure is repeated in full here.
+        """
+        live = {job["id"] for job in job_list}
+        for stale in [jid for jid in self._announced if jid not in live]:
+            del self._announced[stale]
+
+        for job in job_list:
+            status = job["status"]
+            if status not in jobs.TERMINAL or self._announced.get(job["id"]) == status:
+                continue
+            self._announced[job["id"]] = status
+            title = job["title"]
+            if status == jobs.DONE:
+                self.say(f"Saved {job.get('filename') or title} to {downloader.DOWNLOAD_DIR}", "ok")
+            elif status == jobs.ERROR:
+                self.say(f"{title} failed — {job.get('error') or 'unknown reason'}", "error")
+            else:
+                self.say(f"Cancelled {title}.", "warn")
 
     # --------------------------------------------------------------- actions
 
@@ -242,20 +427,20 @@ class Url2VidApp(App):
         listview = self.query_one("#list", ListView)
         index = listview.index
         if index is None or index >= len(self._row_ids):
-            self.set_status("Select a download with ↑/↓ first, then press c.", "bright_yellow")
+            self.say("Select a download with ↑/↓ first, then press c.", "warn")
             return
         job_id = self._row_ids[index]
         if registry.request_cancel(job_id):
-            self.set_status("Cancelling…", "bright_yellow")
+            self.say("Cancelling…", "busy")
         else:
-            self.set_status("That download already finished.", "bright_yellow")
+            self.say("That download already finished.", "warn")
 
     def action_clear(self) -> None:
         count = registry.clear_finished()
-        self.set_status(f"Cleared {count} finished download{'s' if count != 1 else ''}.", "cyan")
+        self.say(f"Cleared {count} finished download{'s' if count != 1 else ''}.", "info")
 
     def action_open_folder(self) -> None:
-        self.set_status(f"Saving to {downloader.DOWNLOAD_DIR}", "cyan")
+        self.say(f"Saving to {downloader.DOWNLOAD_DIR}", "info")
 
 
 def run() -> None:

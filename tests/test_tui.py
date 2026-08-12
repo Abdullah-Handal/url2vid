@@ -253,10 +253,9 @@ class TestFoundAndFeedback:
 
     async def test_probe_failure_reports_the_reason(self):
         async with Url2VidApp().run_test() as pilot:
-            pilot.app.probe_failed("Unsupported URL: http://example.com")
+            pilot.app.probe_failed("yt-dlp has no extractor for example.com")
             await pilot.pause()
-            text = _message(pilot)
-            assert "No video found" in text and "Unsupported URL" in text
+            assert "no extractor for example.com" in _message(pilot)
             assert not pilot.app.query_one("#fetch", Button).disabled
 
     async def test_failed_download_is_announced_in_full(self):
@@ -301,4 +300,4 @@ class TestFoundAndFeedback:
             await pilot.click("#fetch")
             await pilot.pause(0.3)
             assert pilot.app.query_one("#found").styles.display == "none"
-            assert "nope" in _message(pilot)
+            assert "nope" in _message(pilot)  # unrecognised text passes through

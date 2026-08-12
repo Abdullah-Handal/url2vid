@@ -70,3 +70,82 @@ class TestCleanError:
 
     def test_empty_message_gets_a_fallback(self):
         assert downloader.clean_error("") != ""
+
+
+class TestExplainError:
+    """Every branch names the site and says whose problem it is."""
+
+    def test_unsupported_url_explains_itself(self):
+        """The bare yt-dlp text reads like a bug in this app; it isn't."""
+        out = downloader.explain_error(
+            "ERROR: Unsupported URL: https://uqload.is/abc.html",
+            "https://uqload.is/abc.html",
+        )
+        assert "no extractor for uqload.is" in out
+        assert "JavaScript" in out
+        assert "Unsupported URL" not in out
+
+    def test_dns_failure_is_not_reported_as_a_missing_video(self):
+        out = downloader.explain_error(
+            "ERROR: [generic] v: Unable to download webpage: [Errno -2] "
+            "Name or service not known (caused by TransportError('x'))",
+            "https://nope.invalid/v.mp4",
+        )
+        assert "does not resolve" in out and "nope.invalid" in out
+
+    def test_404_names_the_site(self):
+        out = downloader.explain_error(
+            "ERROR: [generic] x: Unable to download webpage: HTTP Error 404: Not Found",
+            "https://www.example.com/x",
+        )
+        assert "example.com returned 404" in out
+
+    def test_403_suggests_the_likely_cause(self):
+        out = downloader.explain_error("ERROR: HTTP Error 403: Forbidden", "https://a.tv/x")
+        assert "403" in out and "expired" in out
+
+    def test_login_walled_video_says_so(self):
+        out = downloader.explain_error(
+            "ERROR: [youtube] a: Private video. Sign in if you have been granted access.",
+            "https://youtube.com/watch?v=a",
+        )
+        assert "needs an account" in out
+
+    def test_geo_block_is_distinguished_from_a_missing_video(self):
+        out = downloader.explain_error(
+            "ERROR: [x] a: The uploader has not made this video available in your country",
+            "https://x.com/a",
+        )
+        assert "region" in out
+
+    def test_removed_video_quotes_the_site(self):
+        out = downloader.explain_error("ERROR: [yt] a: Video unavailable", "https://yt.com/a")
+        assert "gone" in out and "Video unavailable" in out
+
+    def test_drm_is_called_out(self):
+        assert "DRM" in downloader.explain_error("ERROR: This video is DRM protected", "https://a.tv/x")
+
+    def test_unrecognised_errors_pass_through_untouched(self):
+        """Flattening an unknown failure into a vague catch-all loses the only
+        clue there is."""
+        out = downloader.explain_error("ERROR: ffmpeg exited with code 234", "https://a.tv/x")
+        assert out == "ffmpeg exited with code 234"
+
+    def test_extractor_prefix_and_caused_by_tail_are_dropped(self):
+        out = downloader.explain_error(
+            "ERROR: [generic] clip42: something odd (caused by TransportError('boom'))",
+            "https://a.tv/x",
+        )
+        assert out == "something odd"
+
+    def test_missing_url_still_produces_a_sentence(self):
+        out = downloader.explain_error("ERROR: Unsupported URL: x", "")
+        assert "that site" in out
+
+
+class TestHost:
+    def test_strips_www_and_port(self):
+        assert downloader._host("https://www.example.com:8443/a") == "example.com"
+
+    def test_empty_for_a_bare_string(self):
+        assert downloader._host("not a url") == ""

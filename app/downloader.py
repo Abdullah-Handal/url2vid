@@ -7,8 +7,10 @@ exact byte counts through ``progress_hooks`` instead of scraped stdout text.
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -252,11 +254,15 @@ def _run(job_id: str) -> None:
         registry.update(job_id, status=jobs.CANCELLED, speed=None, eta=None)
         return
     except DownloadError as exc:
-        registry.update(job_id, status=jobs.ERROR, error=clean_error(str(exc)), speed=None, eta=None)
+        registry.update(
+            job_id, status=jobs.ERROR, error=explain_error(str(exc), job.url), speed=None, eta=None
+        )
         return
     except Exception as exc:  # noqa: BLE001 - one bad URL must not kill the worker
         log.exception("download failed for %s", job.url)
-        registry.update(job_id, status=jobs.ERROR, error=clean_error(str(exc)), speed=None, eta=None)
+        registry.update(
+            job_id, status=jobs.ERROR, error=explain_error(str(exc), job.url), speed=None, eta=None
+        )
         return
 
     registry.update(
@@ -280,6 +286,85 @@ def clean_error(message: str) -> str:
             text = text[len(prefix):]
     text = text.strip()
     return text[:400] if text else "Download failed for an unknown reason."
+
+
+def _host(url: str) -> str:
+    """Bare hostname of a URL, or "" if it hasn't got one."""
+    try:
+        netloc = urlparse(url).netloc.lower()
+    except ValueError:
+        return ""
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return netloc.split("@")[-1].split(":")[0]
+
+
+def _strip_noise(text: str) -> str:
+    """Drop the "[extractor] id:" prefix and the "(caused by ...)" tail.
+
+    Both are yt-dlp internals. The first names the extractor and the video id,
+    neither of which helps someone reading the message; the second repeats the
+    same failure as a Python exception repr.
+    """
+    head = text.split(" (caused by ")[0].strip()
+    return re.sub(r"^\[[^\]]+\]\s+[^:]{1,60}:\s*", "", head).strip()
+
+
+def _any(text: str, *needles: str) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def explain_error(message: str, url: str = "") -> str:
+    """Turn a yt-dlp failure into a sentence that says what actually went wrong.
+
+    yt-dlp's own text answers "what broke" but rarely "whose fault is it".
+    "Unsupported URL" is the worst of them: on its own it reads like a bug in
+    this app, when it means no extractor matched the site *and* the page held
+    no findable stream. Anything unrecognised falls through unchanged rather
+    than being flattened into a vague catch-all.
+    """
+    detail = _strip_noise(clean_error(message))
+    low = detail.lower()
+    site = _host(url) or "that site"
+
+    if "unsupported url" in low:
+        return (
+            f"yt-dlp has no extractor for {site}, and no video could be found in "
+            "the page itself. Sites that build their player in JavaScript keep "
+            "the stream out of the page source, so there is nothing to pick up."
+        )
+    if _any(low, "name or service not known", "nodename nor servname",
+            "temporary failure in name resolution", "no address associated"):
+        return (
+            f"Could not reach {site} — that domain does not resolve. "
+            "Check the spelling and your connection."
+        )
+    if _any(low, "connection refused", "connection reset", "connection timed out",
+            "timed out", "connectionerror"):
+        return f"Could not connect to {site}. It may be down, or blocked on your network."
+    if "404" in low:
+        return f"{site} returned 404 Not Found — the link is wrong, or the video was deleted."
+    if _any(low, "403", "forbidden"):
+        return (
+            f"{site} refused the request (403 Forbidden). The link may have expired, "
+            "or the site may be blocking non-browser requests."
+        )
+    if _any(low, "429", "too many requests", "rate limit"):
+        return f"{site} is rate-limiting you (429). Wait a while and try again."
+    if "drm" in low:
+        return "That video is DRM-protected, which url2vid does not handle."
+    if _any(low, "sign in", "log in", "login", "cookies", "authentication",
+            "private video", "members-only", "subscribers only", "premium"):
+        return f"That video needs an account — url2vid does not sign in or use cookies. {site} said: {detail}"
+    if _any(low, "your country", "geo restrict", "geo-restrict", "geo block",
+            "not available in your", "blocked in your"):
+        return f"{site} blocks that video in your region."
+    if _any(low, "video unavailable", "has been removed", "no longer available",
+            "does not exist", "was deleted", "not found"):
+        return f"{site} says that video is gone: {detail}"
+    if _any(low, "is not a valid url", "invalid url"):
+        return "That is not a URL yt-dlp can read. Check it for typos or stray characters."
+    return detail or "The download failed for an unknown reason."
 
 
 def start(url: str, height: int | None, title: str) -> jobs.Job:

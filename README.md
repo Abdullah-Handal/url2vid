@@ -69,12 +69,29 @@ quietly:
 | Fetch with an empty box | `! Nothing to fetch — paste a video URL in the box first.` |
 | URL without a scheme | `✗ That is not a full URL. It has to start with http:// or https://` |
 | Lookup in flight | `◐ Searching that link for a video…` and the button reads *Searching…* |
-| No video on the page | `✗ No video found there — [generic] …: HTTP Error 404: Not Found` |
 | Download finished | `✓ Saved <filename> to <folder>` |
-| Download failed | `✗ <title> failed — <the site's own reason>` |
+| Download failed | `✗ <title> failed — <the reason>` |
 
 A failed row is also drawn in red in the table, but its message is trimmed to
 fit the column — the message line always carries the full text.
+
+Failures are explained rather than echoed. yt-dlp's own wording answers *what*
+broke but rarely *whose problem it is* — `Unsupported URL` in particular reads
+like a bug in this app when it is not — so `explain_error` classifies the
+common cases:
+
+| yt-dlp says | url2vid says |
+|---|---|
+| `Unsupported URL: https://…` | yt-dlp has no extractor for `<site>`, and no video could be found in the page itself. Sites that build their player in JavaScript keep the stream out of the page source. |
+| `…Name or service not known` | Could not reach `<site>` — that domain does not resolve. |
+| `HTTP Error 404: Not Found` | `<site>` returned 404 Not Found — the link is wrong, or the video was deleted. |
+| `HTTP Error 403: Forbidden` | `<site>` refused the request. The link may have expired, or the site may be blocking non-browser requests. |
+| `Private video. Sign in…` | That video needs an account — url2vid does not sign in or use cookies. |
+| `…not available in your country` | `<site>` blocks that video in your region. |
+
+Anything unrecognised is passed through unchanged, with yt-dlp's `[extractor]
+id:` prefix and `(caused by …)` tail stripped. Flattening an unknown failure
+into a generic apology would throw away the only clue available.
 
 | Key | Action |
 |---|---|

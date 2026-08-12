@@ -291,14 +291,16 @@ class Url2VidApp(App):
         try:
             info = downloader.probe(url)
         except Exception as exc:  # noqa: BLE001 - show the site's own reason
-            message = downloader.clean_error(str(exc))
+            message = downloader.explain_error(str(exc), url)
             self.call_from_thread(self.probe_failed, message)
             return
         self.call_from_thread(self.show_formats, url, info)
 
     def probe_failed(self, message: str) -> None:
+        # explain_error already returns a whole sentence, so it is shown as-is
+        # rather than buried behind a lead-in that would push it off the panel.
         self.set_busy(False)
-        self.say(f"No video found there — {message}", "error")
+        self.say(message, "error")
 
     def show_formats(self, url: str, info: dict) -> None:
         """Report what was found, then either offer resolutions or just go."""

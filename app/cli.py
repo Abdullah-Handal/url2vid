@@ -27,7 +27,10 @@ def download_once(url: str, height: int | None, list_only: bool = False) -> int:
     try:
         info = downloader.probe(url)
     except Exception as exc:  # noqa: BLE001 - report the site's own reason
-        console.print(f"[bright_red]✗ {escape(downloader.clean_error(str(exc)))}[/]")
+        console.print(
+            f"[bright_red]✗ {escape(downloader.explain_error(str(exc), url))}[/]",
+            soft_wrap=True,
+        )
         return 1
 
     console.print(f"[bold]{escape(info['title'])}[/] [dim]({escape(str(info.get('extractor') or 'unknown source'))})[/]")

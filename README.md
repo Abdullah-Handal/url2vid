@@ -1,6 +1,7 @@
 # url2vid
 
-Paste a video URL into a terminal dashboard and watch it download. Built on
+Paste a video URL into a terminal dashboard — or a local web page — and
+watch it download. Built on
 [yt-dlp](https://github.com/yt-dlp/yt-dlp), so it handles roughly 1800 sites —
 YouTube, X/Twitter, TikTok, Instagram, Reddit, Vimeo, Facebook, Twitch, news
 sites — plus direct `.mp4`/HLS/DASH links on arbitrary pages.
@@ -116,6 +117,41 @@ the list — while the URL box has focus it receives those keystrokes as text.
 
 Files land in `downloads/`.
 
+**Web UI** — a React + TypeScript page over the same download engine:
+
+```bash
+cd web && npm install && npm run build && cd ..
+.venv/bin/python run_web.py            # then open http://127.0.0.1:8000
+```
+
+For frontend work, run the two halves separately so the UI hot-reloads:
+
+```bash
+.venv/bin/python run_web.py            # API on :8000
+cd web && npm run dev                  # UI on :5173, proxies /api to :8000
+```
+
+### Choosing where videos are saved
+
+Click **Choose folder…** once. The browser's own folder picker opens, and from
+then on every finished video is written straight into that folder — the choice
+is remembered across restarts, so it becomes your default. **Use default** puts
+things back to the server's `downloads/` folder.
+
+This uses the File System Access API, which is a Chromium-only feature today
+(Chrome, Edge, Brave, Opera). Firefox and Safari get told so plainly, and every
+finished download carries a **Save…** button that opens the ordinary browser
+save dialog — so the feature degrades to per-video instead of disappearing.
+That button is present in every browser, which is also how you put a second
+copy somewhere else.
+
+A note on how it works, because it constrains the design: the API hands out a
+*handle*, never a path — a web page is not allowed to learn where things are on
+your disk. The handle is kept in IndexedDB (`localStorage` only stores strings
+and would flatten it), and browsers may downgrade its permission to "prompt"
+after a restart, which can only be cleared by a click. That is what the
+**Reconnect** button is for.
+
 ## How progress is measured
 
 yt-dlp is used as a library rather than a subprocess, so progress arrives as
@@ -142,8 +178,16 @@ than guessed and the row falls back to yt-dlp's own estimate.
 | `app/progress.py` | percentage, ETA, and format arithmetic — no I/O, fully unit-tested |
 | `app/jobs.py` | thread-safe job registry shared by workers and the UI |
 | `app/downloader.py` | all yt-dlp contact; owns the worker pool |
-| `app/tui.py` | the dashboard |
+| `app/tui.py` | the terminal dashboard |
 | `app/cli.py` | one-shot mode |
+| `run_web.py` | entry point for the web UI |
+| `server/main.py` | FastAPI routes and the SSE job stream |
+| `web/src/folder.ts` | folder picking, persistence, and writing files to disk |
+| `web/src/App.tsx` | web UI state and orchestration |
+
+The web UI adds routes on top of `app/downloader.py`, `app/jobs.py` and
+`app/progress.py` rather than duplicating them, so a fix to the progress
+arithmetic or the error explanations lands in both front ends at once.
 
 ## Tests
 
@@ -152,4 +196,9 @@ than guessed and the row falls back to yt-dlp's own estimate.
 ```
 
 Covers the progress arithmetic, job state, filename templating, error
-cleanup, and the dashboard driven headlessly through Textual's test pilot.
+explanation, the terminal dashboard driven headlessly through Textual's test
+pilot, and the HTTP API with the network mocked out.
+
+```bash
+cd web && npm run typecheck    # frontend types
+```

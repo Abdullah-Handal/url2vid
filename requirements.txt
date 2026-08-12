@@ -1,5 +1,13 @@
-pytest==9.1.1
-pytest-asyncio==1.4.0
+# Terminal app
 rich==15.0.0
 textual==8.2.8
 yt-dlp==2026.7.4
+
+# Web UI backend (run_web.py). The terminal app does not need these.
+fastapi==0.121.2
+uvicorn[standard]==0.42.0
+
+# Tests
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

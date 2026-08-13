@@ -21,7 +21,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
 
-LINUX = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+# Tried in order. The first is the smallest build, but it is one person's
+# server and intermittently answers with something that is not the archive
+# (a rate-limit or error page), which failed a build mid-release. The second
+# is larger but sits on GitHub's infrastructure.
+LINUX_SOURCES = (
+    "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+    "ffmpeg-master-latest-linux64-gpl.tar.xz",
+)
+LINUX = LINUX_SOURCES[0]
+
+# First bytes of an xz stream. Checked before unpacking so a served error page
+# is reported as what it is, rather than as "not an lzma file".
+XZ_MAGIC = b"\xfd7zXZ\x00"
 WINDOWS = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
     "ffmpeg-master-latest-win64-gpl.zip"
@@ -32,8 +45,27 @@ WANTED = ("ffmpeg", "ffprobe")
 def _download(url: str) -> bytes:
     print(f"fetching {url}")
     request = urllib.request.Request(url, headers={"User-Agent": "url2vid-build"})
-    with urllib.request.urlopen(request, timeout=180) as response:
+    with urllib.request.urlopen(request, timeout=300) as response:
         return response.read()
+
+
+def _download_archive(sources: tuple[str, ...], magic: bytes) -> bytes:
+    """Download the first source that actually returns the expected archive."""
+    problems = []
+    for url in sources:
+        try:
+            payload = _download(url)
+        except Exception as exc:  # noqa: BLE001 - any failure moves to the next
+            problems.append(f"{url}: {exc}")
+            print(f"  failed: {exc}")
+            continue
+        if not payload.startswith(magic):
+            head = payload[:80].decode("utf-8", "replace").strip()
+            problems.append(f"{url}: not an archive (starts with {head!r})")
+            print("  failed: response was not an archive")
+            continue
+        return payload
+    raise RuntimeError("could not download ffmpeg:\n  " + "\n  ".join(problems))
 
 
 def _from_tar(payload: bytes) -> None:
@@ -67,10 +99,10 @@ def _from_zip(payload: bytes) -> None:
 def main() -> int:
     BIN.mkdir(exist_ok=True)
     if sys.platform == "win32":
-        _from_zip(_download(WINDOWS))
+        _from_zip(_download_archive((WINDOWS,), b"PK\x03\x04"))
         required = [BIN / "ffmpeg.exe", BIN / "ffprobe.exe"]
     else:
-        _from_tar(_download(LINUX))
+        _from_tar(_download_archive(LINUX_SOURCES, XZ_MAGIC))
         required = [BIN / "ffmpeg", BIN / "ffprobe"]
 
     # The spec bundles this unconditionally, and archives do not all carry a

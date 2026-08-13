@@ -1,85 +1,88 @@
 # url2vid
 
-Paste a video URL into a terminal dashboard — or a local web page — and
-watch it download. Built on
-[yt-dlp](https://github.com/yt-dlp/yt-dlp), so it handles roughly 1800 sites —
-YouTube, X/Twitter, TikTok, Instagram, Reddit, Vimeo, Facebook, Twitch, news
-sites — plus direct `.mp4`/HLS/DASH links on arbitrary pages.
+Paste a video URL, pick a quality, get the file. A small desktop app for
+Windows and Linux built on [yt-dlp](https://github.com/yt-dlp/yt-dlp), so it
+handles roughly 1800 sites — YouTube, X/Twitter, TikTok, Instagram, Reddit,
+Vimeo, Facebook, Twitch, news sites — plus direct `.mp4`/HLS/DASH links.
 
-DRM-protected services (Netflix, Disney+, Prime Video) are not supported.
+DRM-protected services (Netflix, Disney+, Prime Video) are **not** supported
+and never will be.
 
-## Requirements
+## Download
 
-- Python 3.11+
-- `ffmpeg` on your PATH (needed to merge video and audio into one file)
+Nothing to install first: Python, ffmpeg and everything else are inside the
+file.
 
-## Setup
+| System | File | Size | |
+|---|---|---|---|
+| **Windows 10/11** (64-bit) | [**url2vid-windows-setup.exe**](https://github.com/Abdullah-Handal/url2vid/releases/latest/download/url2vid-windows-setup.exe) | 68 MB | Recommended — installer |
+| Windows 10/11 (64-bit) | [url2vid-windows-portable.exe](https://github.com/Abdullah-Handal/url2vid/releases/latest/download/url2vid-windows-portable.exe) | 86 MB | One file, no install |
+| **Linux** (x86-64) | [**url2vid-linux-x86_64.tar.gz**](https://github.com/Abdullah-Handal/url2vid/releases/latest/download/url2vid-linux-x86_64.tar.gz) | 77 MB | |
+
+Every version, with notes: **[Releases](https://github.com/Abdullah-Handal/url2vid/releases)**.
+
+### Windows
+
+Run the **setup** file. It installs into your Documents folder, adds a Desktop
+shortcut and a Start-menu entry, and asks for no administrator rights — so it
+works on a locked-down machine without a UAC prompt. Uninstalling leaves your
+downloaded videos alone.
+
+Windows will show a blue **"Windows protected your PC"** box on first run,
+because the file is not signed by a paid certificate. Click **More info →
+Run anyway**. Code-signing costs a few hundred dollars a year, which this
+project does not have.
+
+The **portable** file needs no install at all — but it unpacks itself into a
+temporary folder every single time you open it, which costs several seconds
+per launch and makes your antivirus rescan it each time. Use the installer
+unless you specifically need to run it from a USB stick.
+
+### Linux
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+tar -xzf url2vid-linux-x86_64.tar.gz
+./url2vid/url2vid
 ```
 
-## Use
+To get it into your apps menu, copy `url2vid.desktop` from the repo to
+`~/.local/share/applications/` and point its `Exec=` line at wherever you
+unpacked it.
 
-**Dashboard** — run with no arguments:
+## Using it
 
-```bash
-.venv/bin/python url2vid.py
-```
+The app opens its own window. Paste a link, press **Fetch**, and a panel
+appears with the thumbnail, the title, and everything on offer:
 
-Paste a URL and press **Enter** (or click **Fetch**). The video's title and
-source appear as soon as they are known:
+- **Quality buttons** — every resolution the site has, each showing roughly how
+  large the file will be, so you can tell 480p from 4K before committing.
+- **Audio** on or off — off gives you a silent video file.
+- **Audio only** — swaps the buttons for MP3 bitrates (320 / 256 / 192 / 128 /
+  96 kbps) with their sizes. The result is a real `.mp3`, converted with
+  ffmpeg, not the site's raw `.webm` stream.
 
-```
-  https://www.youtube.com/watch?v=aqz-KE-bpKQ            [ Fetch ]
+Press **Download** and the panel gives way to the queue. Paste another link
+while the first is still going; three download at once and the rest wait. Each
+row shows a live percentage, speed, size and time remaining.
 
-█ Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film
-█ Youtube · 10:35 · 8 resolutions
+**Cancel deletes the file.** A cancelled download takes its partial pieces with
+it rather than leaving half a video on your disk.
 
-  [ Best available     ▾ ]   [ Download ]
+**Some links skip the panel.** A URL that already points at a media file, or a
+site that only serves one pre-muxed stream, has no quality to choose — those
+fetch their title and start immediately.
 
-✓ Found "Big Buck Bunny 60fps 4K…" — pick a resolution and press Download.
-```
+### Where files go
 
-Pick a resolution, press **Download**, and the row appears in the table below.
-Paste another while the first is still running; up to three download at once
-and the rest queue.
+Your system's **Downloads** folder, unless you say otherwise. **Choose
+folder…** opens a native folder picker and the choice is remembered from then
+on.
 
-**Direct links download themselves.** A URL that already points at a media file
-— `.mp4`, `.mkv`, `.webm`, `.m3u8` and friends, with or without a signed query
-string — has no resolution to choose, so it is fetched for its title and then
-starts immediately without a second click. The same applies to any site that
-only serves one pre-muxed stream.
-
-```
-NAME                           RES PROGRESS                  %     LEFT      SPEED      SIZE
-Caminandes: Llamigos         1080p ████████████████████ 100.0%     done              85.8 MB
-Tears of Steel                best ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌     --  waiting
-Sintel - Official Trailer     720p ████████████████████ 100.0%  merging              45.8 MB
-Big Buck Bunny 60fps 4K…     1080p █████████████░░░░░░░  63.9%   1m 03s   1.3 MB/s  234.3 MB
-```
-
-### Feedback
-
-Every action reports back on the message line under the input, so nothing fails
-quietly:
-
-| Situation | What you see |
-|---|---|
-| Fetch with an empty box | `! Nothing to fetch — paste a video URL in the box first.` |
-| URL without a scheme | `✗ That is not a full URL. It has to start with http:// or https://` |
-| Lookup in flight | `◐ Searching that link for a video…` and the button reads *Searching…* |
-| Download finished | `✓ Saved <filename> to <folder>` |
-| Download failed | `✗ <title> failed — <the reason>` |
-
-A failed row is also drawn in red in the table, but its message is trimmed to
-fit the column — the message line always carries the full text.
+### When it breaks
 
 Failures are explained rather than echoed. yt-dlp's own wording answers *what*
 broke but rarely *whose problem it is* — `Unsupported URL` in particular reads
-like a bug in this app when it is not — so `explain_error` classifies the
-common cases:
+like a bug in this app when it is not:
 
 | yt-dlp says | url2vid says |
 |---|---|
@@ -94,62 +97,34 @@ Anything unrecognised is passed through unchanged, with yt-dlp's `[extractor]
 id:` prefix and `(caused by …)` tail stripped. Flattening an unknown failure
 into a generic apology would throw away the only clue available.
 
-| Key | Action |
-|---|---|
-| `Enter` | look up the URL in the box (same as the **Fetch** button) |
-| `Esc` | move focus to the download list |
-| `F2` | jump back to the URL box |
-| `F3` | cancel the selected download |
-| `F4` | clear finished rows |
-| `F5` | show the downloads folder |
-| `Ctrl+Q` | quit |
+### Keeping it working
 
-The single-letter shortcuts (`d`, `c`, `x`, `o`, `q`) also work once focus is on
-the list — while the URL box has focus it receives those keystrokes as text.
+Video sites change constantly, and a downloader that cannot keep up stops
+working within weeks. The app carries a copy of yt-dlp but checks for a newer
+one on request: press **Update** and it fetches the current release into your
+own data folder, which takes over from the bundled copy on the next launch.
+You do not have to reinstall the app to keep it working.
 
-**One-shot** — pass a URL to download and exit:
+## Running from source
+
+The desktop app is the packaged form of the same code. To run it directly you
+need **Python 3.11+**, **Node** (for the UI), and **ffmpeg** on your PATH:
 
 ```bash
-.venv/bin/python url2vid.py "https://www.youtube.com/watch?v=..."
-.venv/bin/python url2vid.py "https://..." -r 1080     # cap the resolution
-.venv/bin/python url2vid.py "https://..." --list      # show resolutions, don't download
-```
-
-Files land in `downloads/`.
-
-**Web UI** — a React + TypeScript page over the same download engine.
-
-One tap:
-
-| System | File |
-|---|---|
-| Ubuntu / Linux | `./start-web.sh` |
-| Windows | `start-web.bat` (double-click) |
-
-The launcher creates the virtualenv, installs the Python and npm packages,
-builds the page, starts the server and opens your browser. Everything already
-in place is skipped, so only the first run is slow. Launch it a second time
-while it is already running and it just opens the tab. Closing the window
-stops the server rather than leaving it holding the port.
-
-Pass a port to either one if 8000 is taken: `./start-web.sh` reads `PORT`
-(`PORT=9000 ./start-web.sh`), and the `.bat` takes it as an argument
-(`start-web.bat 9000`).
-
-**To launch it from the Ubuntu apps menu**, install the bundled desktop entry:
-
-```bash
-cp url2vid.desktop ~/.local/share/applications/
-```
-
-It is also double-clickable from the Desktop after right-click → *Allow
-Launching*.
-
-By hand, if you would rather:
-
-```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 cd web && npm install && npm run build && cd ..
-.venv/bin/python run_web.py            # then open http://127.0.0.1:8000
+.venv/bin/python desktop.py
+```
+
+There are two other front ends over the same engine:
+
+```bash
+.venv/bin/python url2vid.py                 # terminal dashboard
+.venv/bin/python url2vid.py "https://…"     # one-shot download
+.venv/bin/python url2vid.py "https://…" -r 1080
+.venv/bin/python url2vid.py "https://…" --list
+.venv/bin/python run_web.py                 # browser UI on http://127.0.0.1:8000
 ```
 
 For frontend work, run the two halves separately so the UI hot-reloads:
@@ -159,26 +134,21 @@ For frontend work, run the two halves separately so the UI hot-reloads:
 cd web && npm run dev                  # UI on :5173, proxies /api to :8000
 ```
 
-### Choosing where videos are saved
+The server binds to `127.0.0.1` only. That is not a preference — it is what
+makes accepting a filesystem path over HTTP safe. Do not change it.
 
-Click **Choose folder…** once. The browser's own folder picker opens, and from
-then on every finished video is written straight into that folder — the choice
-is remembered across restarts, so it becomes your default. **Use default** puts
-things back to the server's `downloads/` folder.
+### Building the installers
 
-This uses the File System Access API, which is a Chromium-only feature today
-(Chrome, Edge, Brave, Opera). Firefox and Safari get told so plainly, and every
-finished download carries a **Save…** button that opens the ordinary browser
-save dialog — so the feature degrades to per-video instead of disappearing.
-That button is present in every browser, which is also how you put a second
-copy somewhere else.
+Push a version tag and GitHub Actions builds both platforms:
 
-A note on how it works, because it constrains the design: the API hands out a
-*handle*, never a path — a web page is not allowed to learn where things are on
-your disk. The handle is kept in IndexedDB (`localStorage` only stores strings
-and would flatten it), and browsers may downgrade its permission to "prompt"
-after a restart, which can only be cleared by a click. That is what the
-**Reconnect** button is for.
+```bash
+git tag v0.1.4 && git push origin v0.1.4
+```
+
+`.github/workflows/release.yml` builds the UI, fetches a static ffmpeg, freezes
+everything with PyInstaller, runs the tests and a smoke test against the frozen
+bundle, wraps Windows with Inno Setup, and attaches all three files to the
+release.
 
 ## How progress is measured
 
@@ -196,40 +166,54 @@ completes, so the total converges on the truth.
 Time remaining is derived from a smoothed speed over the remaining bytes rather
 than from yt-dlp's own `eta`, which describes only the stream currently in
 flight. When a site reports no size at all, the percentage is withheld rather
-than guessed and the row falls back to yt-dlp's own estimate.
+than guessed.
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `url2vid.py` | entry point; argument parsing |
-| `app/progress.py` | percentage, ETA, and format arithmetic — no I/O, fully unit-tested |
+| `desktop.py` | desktop entry point: free port, server thread, native window |
+| `app/paths.py` | every path, for both frozen and source runs — the only place that knows about PyInstaller |
+| `app/progress.py` | percentage, ETA, size and format arithmetic — no I/O, fully unit-tested |
 | `app/jobs.py` | thread-safe job registry shared by workers and the UI |
 | `app/downloader.py` | all yt-dlp contact; owns the worker pool |
+| `app/updater.py` | fetches a newer yt-dlp into the user's data folder |
 | `app/tui.py` | the terminal dashboard |
 | `app/cli.py` | one-shot mode |
-| `run_web.py` | entry point for the web UI |
-| `start-web.sh` | one-tap launcher for Linux (setup, build, serve, open) |
-| `start-web.bat` | the same for Windows |
-| `url2vid.desktop` | Ubuntu apps-menu entry |
 | `server/main.py` | FastAPI routes and the SSE job stream |
-| `web/src/folder.ts` | folder picking, persistence, and writing files to disk |
-| `web/src/App.tsx` | web UI state and orchestration |
+| `web/src/App.tsx` | UI state and orchestration |
+| `web/src/components/FoundPanel.tsx` | the quality / audio / download panel |
+| `url2vid.spec` | PyInstaller build |
+| `packaging/url2vid.iss` | Inno Setup installer |
+| `scripts/fetch_ffmpeg.py` | pulls a static ffmpeg at build time |
 
-The web UI adds routes on top of `app/downloader.py`, `app/jobs.py` and
+Every front end adds routes on top of `app/downloader.py`, `app/jobs.py` and
 `app/progress.py` rather than duplicating them, so a fix to the progress
-arithmetic or the error explanations lands in both front ends at once.
+arithmetic or the error explanations lands in all of them at once.
 
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
+cd web && npm run typecheck
 ```
 
 Covers the progress arithmetic, job state, filename templating, error
 explanation, the terminal dashboard driven headlessly through Textual's test
-pilot, and the HTTP API with the network mocked out.
+pilot, the HTTP API with the network mocked out, and the windowed-build startup
+path that has no console attached.
 
-```bash
-cd web && npm run typecheck    # frontend types
-```
+## Credits and licences
+
+Built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense), which does all
+the actual site handling.
+
+The Windows and Linux downloads include a static build of
+[ffmpeg](https://ffmpeg.org/), licensed under the GPL. The full licence text
+ships next to the binary as `LICENSE-ffmpeg.txt`; the builds come from
+[johnvansickle.com](https://johnvansickle.com/ffmpeg/) and
+[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), where the
+corresponding source is available.
+
+url2vid downloads what you already have access to. It does not break DRM, does
+not sign in, and does not use cookies. What you do with it is on you.

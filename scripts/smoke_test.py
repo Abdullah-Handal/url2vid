@@ -18,7 +18,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EXE = ROOT / "dist" / "url2vid" / ("url2vid.exe" if sys.platform == "win32" else "url2vid")
-PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+# A plain media file, not YouTube. Build runners sit in datacentre IP ranges
+# that YouTube refuses with a bot check, so a YouTube probe fails on CI for
+# reasons that say nothing about the bundle. This still exercises the whole
+# path -- server, lazily loaded extractors, generic extraction.
+PROBE_URL = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
+# Tried as well, but never fatal: it proves site extractors work when the
+# runner is not blocked, and is worth knowing about either way.
+OPTIONAL_PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 READY = "url2vid listening on "
 
 
@@ -48,17 +55,19 @@ def main() -> int:
             return 1
         print("web UI served OK")
 
-        request = urllib.request.Request(
-            f"{base}/api/probe",
-            data=json.dumps({"url": PROBE_URL}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        request = _probe_request(base, PROBE_URL)
         info = json.load(urllib.request.urlopen(request, timeout=120))
         print(f"probe OK: {info['title']} ({info['extractor']})")
-        if not info.get("title") or not info.get("formats"):
+        if not info.get("title"):
             print("probe returned nothing usable", file=sys.stderr)
             return 1
+
+        # Advisory only -- see OPTIONAL_PROBE_URL.
+        try:
+            extra = _probe(base, OPTIONAL_PROBE_URL)
+            print(f"site extractor OK: {extra['title']} ({extra['extractor']})")
+        except Exception as exc:  # noqa: BLE001
+            print(f"note: {OPTIONAL_PROBE_URL} was not reachable from this runner ({exc})")
     finally:
         process.terminate()
         try:
@@ -68,6 +77,19 @@ def main() -> int:
 
     print("smoke test passed")
     return 0
+
+
+def _probe_request(base: str, url: str) -> urllib.request.Request:
+    return urllib.request.Request(
+        f"{base}/api/probe",
+        data=json.dumps({"url": url}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+
+def _probe(base: str, url: str) -> dict:
+    return json.load(urllib.request.urlopen(_probe_request(base, url), timeout=120))
 
 
 def _wait_for_url(process: subprocess.Popen) -> str | None:

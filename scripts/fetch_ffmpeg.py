@@ -73,6 +73,18 @@ def main() -> int:
         _from_tar(_download(LINUX))
         required = [BIN / "ffmpeg", BIN / "ffprobe"]
 
+    # The spec bundles this unconditionally, and archives do not all carry a
+    # licence at a predictable path. Writing a pointer beats failing the build,
+    # and still satisfies the GPL requirement to say where the source is.
+    licence = BIN / "LICENSE-ffmpeg.txt"
+    if not licence.is_file():
+        licence.write_text(
+            "ffmpeg is distributed under the GNU General Public License.\n"
+            "Source and full licence text: https://ffmpeg.org/legal.html\n"
+            f"Build obtained from: {WINDOWS if sys.platform == 'win32' else LINUX}\n",
+            encoding="utf-8",
+        )
+
     missing = [str(path.name) for path in required if not path.is_file()]
     if missing:
         print(f"ERROR: archive did not contain {', '.join(missing)}", file=sys.stderr)

@@ -56,6 +56,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pywebview
           if [ "$RUNNER_OS" = "Linux" ]; then pip install PyGObject; fi
+          # pywebview's Windows backend is WinForms, which is reached through
+          # pythonnet. Installing pywebview alone builds an app that cannot
+          # open a window at all.
+          if [ "$RUNNER_OS" = "Windows" ]; then pip install pythonnet; fi
         shell: bash
 
       - name: Fetch static ffmpeg

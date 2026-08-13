@@ -7,6 +7,7 @@ application: pick a free port, serve on loopback, and point an OS webview at it.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import socket
 import sys
@@ -32,8 +33,8 @@ WINDOW_SIZE = (980, 720)
 MIN_SIZE = (620, 480)
 
 
-def _reserve_port() -> tuple[socket.socket, int]:
-    """Bind an OS-assigned free port and keep the socket.
+def _reserve_port(preferred: int = 0) -> tuple[socket.socket, int]:
+    """Bind a port and keep the socket. 0 lets the OS assign a free one.
 
     The socket is handed to uvicorn rather than closed and reopened, so nothing
     can take the port in between. A fixed port would collide with whatever else
@@ -41,7 +42,7 @@ def _reserve_port() -> tuple[socket.socket, int]:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
+    sock.bind(("127.0.0.1", preferred))
     sock.listen(128)
     return sock, sock.getsockname()[1]
 
@@ -159,7 +160,21 @@ def _open_window(url: str, api: Api) -> bool:
         return False
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="url2vid", description="Download videos from a URL.")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="run the server without opening a window (used by the build's smoke test)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=0, help="port to listen on; 0 lets the OS choose"
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
     if not paths.web_dist().is_dir():
@@ -172,13 +187,26 @@ def main() -> int:
 
     downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    sock, port = _reserve_port()
+    sock, port = _reserve_port(args.port)
     url = f"http://127.0.0.1:{port}"
     server = _Server(sock)
 
     if not server.start():
         print("The download server did not start.", file=sys.stderr)
         return 1
+
+    # Announced on stdout so a caller never has to scrape netstat/ss for it --
+    # those differ per platform and were the smoke test's weakest link.
+    print(f"url2vid listening on {url}", flush=True)
+
+    if args.serve:
+        try:
+            threading.Event().wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.stop()
+        return 0
 
     try:
         if not _open_window(url, Api()):

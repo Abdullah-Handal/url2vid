@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import socket
 import sys
 import threading
@@ -18,6 +19,14 @@ from pathlib import Path
 # A newer yt-dlp, if one has been fetched, must win over the copy frozen into
 # the bundle -- so this happens before anything imports yt_dlp.
 from app import paths  # noqa: E402  (deliberately first)
+
+# A windowed build has no console attached, so Python leaves these as None.
+# Anything that writes to them -- a stray print, a library's warning -- then
+# fails at an unpredictable moment, so they are pointed at a sink up front.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")  # noqa: SIM115 - lives for the process
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")  # noqa: SIM115
 
 _deps = paths.deps_dir()
 if _deps.is_dir():
@@ -59,6 +68,12 @@ class _Server:
             log_level="warning",
             access_log=False,
             lifespan="off",
+            # uvicorn's default logging config declares handlers writing to
+            # ext://sys.stderr. In a windowed build that is None, and
+            # dictConfig dies with "Unable to configure formatter 'default'"
+            # before the server ever starts. Nothing here needs uvicorn's log
+            # formatting, so the config is skipped rather than repaired.
+            log_config=None,
             # Stated rather than auto-detected: uvloop and httptools are
             # optional C accelerators worth ~17 MB that a loopback server
             # serving one user gains nothing from. Naming the pure-Python

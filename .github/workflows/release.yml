@@ -67,6 +67,14 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then pip install pythonnet; fi
         shell: bash
 
+      # The suite covers what packaging changes about the app, so it runs
+      # before anything is built rather than after something ships broken.
+      - name: Run the test suite
+        run: |
+          pip install pytest pytest-asyncio
+          python -m pytest -q
+        shell: bash
+
       - name: Fetch static ffmpeg
         run: python scripts/fetch_ffmpeg.py
 

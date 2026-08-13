@@ -15,12 +15,15 @@ from urllib.parse import urlparse
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
-from . import jobs, progress
+from . import jobs, paths, progress
 from .jobs import registry
 
 log = logging.getLogger("url2vid")
 
-DOWNLOAD_DIR = Path(__file__).resolve().parent.parent / "downloads"
+# Resolved through ``paths`` so a packaged build writes to the user's real
+# Downloads folder instead of somewhere inside the bundle. Reassigned by
+# ``set_download_dir``; tests monkeypatch it directly.
+DOWNLOAD_DIR = paths.download_dir()
 MAX_CONCURRENT = 3
 
 _pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT, thread_name_prefix="dl")
@@ -44,7 +47,7 @@ class _SilentLogger:
 
 
 def _base_opts() -> dict:
-    return {
+    opts = {
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -54,6 +57,12 @@ def _base_opts() -> dict:
         # extractor hiccup.
         "ignoreerrors": False,
     }
+    # A packaged build ships its own ffmpeg; pointing yt-dlp at it explicitly
+    # means merging works on machines that have no ffmpeg on PATH at all.
+    bundled = paths.bundled_ffmpeg()
+    if bundled:
+        opts["ffmpeg_location"] = str(bundled)
+    return opts
 
 
 def probe(url: str) -> dict:
@@ -74,6 +83,7 @@ def probe(url: str) -> dict:
     return {
         "title": info.get("title") or "Untitled video",
         "duration": info.get("duration"),
+        "thumbnail": info.get("thumbnail"),
         "extractor": info.get("extractor_key") or info.get("extractor"),
         "webpage_url": info.get("webpage_url") or url,
         "formats": heights,
@@ -187,7 +197,21 @@ def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
     return progress_hook, postprocessor_hook
 
 
-def _output_template(info: dict) -> str:
+def mode_marker(height: int | None, audio: bool, audio_only: bool) -> str:
+    """Short tag describing what a job actually fetches.
+
+    Without it, the same video downloaded twice in different modes lands on one
+    filename -- and because ``overwrites`` is off, yt-dlp hands back the file
+    already on disk instead of the one that was asked for. Asking for 1080p
+    after 144p would quietly return the 144p copy.
+    """
+    if audio_only:
+        return "audio"
+    quality = f"{height}p" if height else "best"
+    return quality if audio else f"{quality} silent"
+
+
+def _output_template(info: dict, marker: str = "") -> str:
     """Filename template for a job.
 
     The video id keeps distinct videos with identical titles from colliding,
@@ -196,9 +220,10 @@ def _output_template(info: dict) -> str:
     """
     video_id = str(info.get("id") or "")
     title = str(info.get("title") or "")
+    tag = f" [{marker}]" if marker else ""
     if video_id and video_id.lower() not in title.lower():
-        return "%(title).150B [%(id).40B].%(ext)s"
-    return "%(title).180B.%(ext)s"
+        return f"%(title).150B [%(id).40B]{tag}.%(ext)s"
+    return f"%(title).180B{tag}.%(ext)s"
 
 
 def _run(job_id: str) -> None:
@@ -206,7 +231,7 @@ def _run(job_id: str) -> None:
     if job is None or job.cancel_requested:
         return
 
-    selector = progress.format_selector(job.height)
+    selector = progress.format_selector(job.height, job.audio, job.audio_only)
     saved: str | None = None
 
     try:
@@ -234,8 +259,9 @@ def _run(job_id: str) -> None:
         # Pass two: fetch, now that the filename template can use the real id.
         opts = _base_opts() | {
             "format": selector,
-            "merge_output_format": "mp4",
-            "outtmpl": _output_template(info),
+            "outtmpl": _output_template(
+                info, mode_marker(job.height, job.audio, job.audio_only)
+            ),
             "paths": {"home": str(DOWNLOAD_DIR)},
             "progress_hooks": [progress_hook],
             "postprocessor_hooks": [postprocessor_hook],
@@ -244,6 +270,10 @@ def _run(job_id: str) -> None:
             "retries": 5,
             "fragment_retries": 5,
         }
+        # Only a video download has two streams to combine; forcing mp4 on an
+        # audio-only job would hand ffmpeg a container it should not be using.
+        if not job.audio_only:
+            opts["merge_output_format"] = "mp4"
         with yt_dlp.YoutubeDL(opts) as ydl:
             result = ydl.process_ie_result(info, download=True)
         downloads = (result or {}).get("requested_downloads") or []
@@ -367,9 +397,35 @@ def explain_error(message: str, url: str = "") -> str:
     return detail or "The download failed for an unknown reason."
 
 
-def start(url: str, height: int | None, title: str) -> jobs.Job:
+def set_download_dir(path: Path) -> Path:
+    """Point downloads at a new folder and remember the choice.
+
+    Rebinding the module global keeps every existing reader -- the API's path
+    guard, the CLI, the terminal UI -- pointed at one value.
+    """
+    global DOWNLOAD_DIR
+    resolved = Path(path).expanduser().resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
+    # Fail before saving if the folder cannot actually be written to.
+    probe_file = resolved / ".url2vid-write-test"
+    probe_file.touch()
+    probe_file.unlink()
+    DOWNLOAD_DIR = resolved
+    paths.save_download_dir(resolved)
+    return resolved
+
+
+def start(
+    url: str,
+    height: int | None,
+    title: str,
+    audio: bool = True,
+    audio_only: bool = False,
+) -> jobs.Job:
     """Register a job and hand it to the worker pool."""
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    job = registry.create(url=url, height=height, title=title)
+    job = registry.create(
+        url=url, height=height, title=title, audio=audio, audio_only=audio_only
+    )
     _pool.submit(_run, job.id)
     return job

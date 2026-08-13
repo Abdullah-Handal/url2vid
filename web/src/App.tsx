@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as api from "./api";
 import * as folders from "./folder";
+import * as native from "./native";
 import type { DirectoryHandle } from "./folder";
 import { FolderBar } from "./components/FolderBar";
 import { FoundPanel } from "./components/FoundPanel";
 import { JobRow } from "./components/JobRow";
 import { MessageBar } from "./components/MessageBar";
 import { UrlBar } from "./components/UrlBar";
-import type { Job, Message, Probe, SaveInfo } from "./types";
+import type { DownloadOptions, Job, Message, Probe, SaveInfo } from "./types";
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -16,6 +17,8 @@ const reason = (error: unknown) => (error instanceof Error ? error.message : Str
 // StrictMode remounts the component in development, which would rebuild a ref
 // and let a second writable stream open on a file already being written.
 const attempted = new Set<string>();
+
+const DEFAULT_OPTIONS: DownloadOptions = { height: "best", audio: true, audioOnly: false };
 
 export default function App() {
   const [url, setUrl] = useState("");
@@ -25,9 +28,10 @@ export default function App() {
     text: "Paste a link and press Enter, or click Fetch.",
   });
   const [found, setFound] = useState<Probe | null>(null);
-  const [height, setHeight] = useState("best");
+  const [options, setOptions] = useState<DownloadOptions>(DEFAULT_OPTIONS);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [offline, setOffline] = useState(false);
+  const [isNative, setIsNative] = useState(false);
 
   const [handle, setHandle] = useState<DirectoryHandle | null>(null);
   const [needsPermission, setNeedsPermission] = useState(false);
@@ -45,8 +49,15 @@ export default function App() {
 
   useEffect(() => api.subscribeJobs(setJobs, setOffline), []);
 
+  // pywebview attaches its API after load, so this cannot be decided on the
+  // first render without sometimes falling back to browser mode by mistake.
+  useEffect(() => {
+    void native.whenReady().then(setIsNative);
+  }, []);
+
   // Restore the remembered folder, and find out whether it still lets us write.
   useEffect(() => {
+    if (isNative) return;
     let cancelled = false;
     void (async () => {
       const restored = await folders.loadHandle();
@@ -63,11 +74,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isNative]);
 
   // Write finished videos into the chosen folder, one attempt each.
   useEffect(() => {
-    if (!handle || needsPermission) return;
+    if (isNative || !handle || needsPermission) return;
     for (const job of jobs) {
       if (job.status !== "done" || !job.filename || attempted.has(job.id)) continue;
       attempted.add(job.id);
@@ -87,13 +98,23 @@ export default function App() {
           say("error", `Could not write ${name} to ${handle.name} — ${reason(error)}`);
         });
     }
-  }, [jobs, handle, needsPermission, say]);
+  }, [jobs, handle, needsPermission, isNative, say]);
 
   const startDownload = useCallback(
-    async (target: Probe, chosen: string) => {
+    async (target: Probe, chosen: DownloadOptions) => {
       try {
-        await api.startDownload(target.webpage_url, chosen === "best" ? null : Number(chosen), target.title);
-        say("ok", `Downloading “${target.title}” at ${chosen === "best" ? "best quality" : `${chosen}p`}…`);
+        await api.startDownload(
+          target.webpage_url,
+          chosen.audioOnly || chosen.height === "best" ? null : Number(chosen.height),
+          target.title,
+          { audio: chosen.audio, audioOnly: chosen.audioOnly },
+        );
+        const what = chosen.audioOnly
+          ? "audio only"
+          : `${chosen.height === "best" ? "best quality" : `${chosen.height}p`}${
+              chosen.audio ? "" : ", no audio"
+            }`;
+        say("ok", `Downloading “${target.title}” — ${what}…`);
         setFound(null);
         setUrl("");
       } catch (error) {
@@ -115,10 +136,10 @@ export default function App() {
     try {
       const result = await api.probe(trimmed);
       setFound(result);
-      setHeight("best");
+      setOptions(DEFAULT_OPTIONS);
       // Nothing to choose means nothing to ask about.
       if (result.auto) {
-        await startDownload(result, "best");
+        await startDownload(result, DEFAULT_OPTIONS);
         setFound(result);
       } else {
         say("ok", `Found “${result.title}” — pick a resolution and press Download.`);
@@ -131,6 +152,17 @@ export default function App() {
   }, [url, say, startDownload]);
 
   const pickFolder = useCallback(async () => {
+    if (isNative) {
+      const result = await native.chooseFolder();
+      if (result.cancelled) return;
+      if (!result.ok || !result.download_dir) {
+        say("error", result.error ?? "Could not change the folder.");
+        return;
+      }
+      setDefaultDir(result.download_dir);
+      say("ok", `Videos will be saved to ${result.download_dir} from now on.`);
+      return;
+    }
     try {
       const picked = await folders.pickFolder();
       if (!picked) return;
@@ -140,7 +172,7 @@ export default function App() {
     } catch (error) {
       say("error", `Could not open the folder picker — ${reason(error)}`);
     }
-  }, [say]);
+  }, [isNative, say]);
 
   const reconnect = useCallback(async () => {
     if (!handle) return;
@@ -159,6 +191,10 @@ export default function App() {
     setNeedsPermission(false);
     say("info", `Videos will stay in ${defaultDir}.`);
   }, [defaultDir, say]);
+
+  const revealFolder = useCallback(() => {
+    void native.revealDownloads();
+  }, []);
 
   const cancel = useCallback(
     async (id: string) => {
@@ -193,6 +229,7 @@ export default function App() {
       <UrlBar url={url} busy={busy} onUrlChange={setUrl} onFetch={fetchUrl} />
 
       <FolderBar
+        native={isNative}
         supported={folders.isSupported()}
         folderName={handle?.name ?? null}
         needsPermission={needsPermission}
@@ -200,6 +237,7 @@ export default function App() {
         onPick={pickFolder}
         onReconnect={reconnect}
         onForget={forgetFolder}
+        onReveal={revealFolder}
       />
 
       <MessageBar message={message} />
@@ -214,9 +252,9 @@ export default function App() {
       {found && !found.auto && (
         <FoundPanel
           found={found}
-          height={height}
-          onHeightChange={setHeight}
-          onDownload={() => void startDownload(found, height)}
+          options={options}
+          onChange={setOptions}
+          onDownload={() => void startDownload(found, options)}
         />
       )}
 
@@ -240,6 +278,7 @@ export default function App() {
                 job={job}
                 save={saves[job.id]}
                 folderName={handle?.name ?? null}
+                native={isNative}
                 onCancel={(id) => void cancel(id)}
               />
             ))}

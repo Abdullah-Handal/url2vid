@@ -110,12 +110,21 @@ def _snap_height(height: int) -> int:
     return min(KNOWN_HEIGHTS, key=lambda known: abs(known - height))
 
 
-def format_selector(height: int | None) -> str:
+def format_selector(
+    height: int | None, audio: bool = True, audio_only: bool = False
+) -> str:
     """yt-dlp format string for a requested max height ('best' when None).
 
     The ``/best`` tail is the fallback for sites that only ever serve a single
     pre-muxed stream and have nothing to merge.
     """
+    if audio_only:
+        # No re-encode: take the site's own best audio track as it comes.
+        return "bestaudio/best"
+    if not audio:
+        if height is None:
+            return "bestvideo/best"
+        return f"bestvideo[height<={height}]/bestvideo/best"
     if height is None:
         return "bestvideo*+bestaudio/best"
     return (

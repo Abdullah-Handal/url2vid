@@ -75,7 +75,13 @@ class TestProbe:
 
 class TestDownloadRoutes:
     def test_start_returns_a_job_id(self, monkeypatch):
-        monkeypatch.setattr(downloader, "start", lambda url, height, title: registry.create(url, height, title))
+        monkeypatch.setattr(
+            downloader,
+            "start",
+            lambda url, height, title, audio=True, audio_only=False: registry.create(
+                url, height, title, audio, audio_only
+            ),
+        )
         body = client.post(
             "/api/download", json={"url": "https://x.com/a", "height": 720, "title": "Clip"}
         ).json()
@@ -139,7 +145,9 @@ class TestFileRoute:
 
 
 class TestConfig:
-    def test_reports_the_default_folder(self):
+    def test_reports_the_folder_downloads_actually_go_to(self):
+        # Not a hard-coded path: a packaged build reports the user's real
+        # Downloads folder, a checkout reports whatever is configured.
         body = client.get("/api/config").json()
-        assert body["download_dir"].endswith("downloads")
+        assert body["download_dir"] == str(downloader.DOWNLOAD_DIR)
         assert body["max_concurrent"] >= 1

@@ -100,3 +100,16 @@ class TestFormatSelector:
     def test_always_has_muxed_fallback(self):
         # Sites serving one pre-muxed stream have nothing to merge.
         assert progress.format_selector(1080).endswith("/best")
+
+
+class TestAudioModes:
+    def test_audio_only_ignores_resolution(self):
+        assert progress.format_selector(1080, audio_only=True) == "bestaudio/best"
+
+    def test_silent_video_asks_for_no_audio_stream(self):
+        selector = progress.format_selector(720, audio=False)
+        assert "bestaudio" not in selector
+        assert "height<=720" in selector
+
+    def test_normal_download_still_merges_video_and_audio(self):
+        assert "+bestaudio" in progress.format_selector(1080)

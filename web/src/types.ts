@@ -12,6 +12,8 @@ export interface Job {
   url: string;
   title: string;
   height: number | null;
+  audio: boolean;
+  audio_only: boolean;
   status: JobStatus;
   percent: number | null;
   eta_label: string;
@@ -33,6 +35,7 @@ export interface Format {
 export interface Probe {
   title: string;
   duration: number | null;
+  thumbnail: string | null;
   extractor: string | null;
   webpage_url: string;
   formats: Format[];
@@ -46,6 +49,13 @@ export type MessageKind = "info" | "busy" | "ok" | "warn" | "error";
 export interface Message {
   kind: MessageKind;
   text: string;
+}
+
+/** What the user chose to pull down: the whole video, silent video, or just sound. */
+export interface DownloadOptions {
+  height: string;
+  audio: boolean;
+  audioOnly: boolean;
 }
 
 /** Where a finished video has got to on its way to the chosen folder. */

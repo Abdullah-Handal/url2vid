@@ -1,0 +1,88 @@
+name: Build desktop app
+
+# Tag a release to publish installers:  git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: url2vid-linux-x86_64.tar.gz
+          - os: windows-latest
+            artifact: url2vid-windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # pywebview's GTK backend needs the WebKit introspection data. Without
+      # it PyInstaller cannot collect the typelib and the packaged app falls
+      # back to opening a browser instead of its own window.
+      - name: Install GTK/WebKit (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+                                  libgirepository-2.0-dev
+
+      - name: Build the web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pywebview
+          if [ "$RUNNER_OS" = "Linux" ]; then pip install PyGObject; fi
+        shell: bash
+
+      - name: Fetch static ffmpeg
+        run: python scripts/fetch_ffmpeg.py
+
+      - name: Package
+        run: pyinstaller url2vid.spec --noconfirm --log-level WARN
+
+      - name: Smoke test the bundle
+        run: python scripts/smoke_test.py
+        shell: bash
+
+      - name: Archive (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.artifact }} -C dist url2vid
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/url2vid -DestinationPath ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}

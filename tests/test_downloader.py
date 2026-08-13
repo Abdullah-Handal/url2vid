@@ -149,3 +149,32 @@ class TestHost:
 
     def test_empty_for_a_bare_string(self):
         assert downloader._host("not a url") == ""
+
+
+class TestModeMarker:
+    """The marker is what stops one mode's file being handed back for another.
+
+    ``overwrites`` is off, so two jobs that resolve to the same filename make
+    yt-dlp reuse whatever is already on disk.
+    """
+
+    def test_each_mode_gets_a_distinct_marker(self):
+        markers = {
+            downloader.mode_marker(144, True, False),
+            downloader.mode_marker(144, False, False),
+            downloader.mode_marker(None, True, True),
+            downloader.mode_marker(1080, True, False),
+            downloader.mode_marker(None, True, False),
+        }
+        assert len(markers) == 5
+
+    def test_audio_only_marker_ignores_height(self):
+        assert downloader.mode_marker(1080, True, True) == "audio"
+
+    def test_marker_lands_in_the_filename(self):
+        template = downloader._output_template({"id": "abc123", "title": "Clip"}, "144p silent")
+        assert "[144p silent]" in template
+        assert template.endswith(".%(ext)s")
+
+    def test_no_marker_leaves_the_name_clean(self):
+        assert "[]" not in downloader._output_template({"id": "abc123", "title": "Clip"})

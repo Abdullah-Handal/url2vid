@@ -30,6 +30,8 @@ class Job:
     url: str
     title: str = "Fetching…"
     height: int | None = None
+    audio: bool = True
+    audio_only: bool = False
     status: str = QUEUED
     downloaded_bytes: int = 0
     total_bytes: int | None = None
@@ -59,6 +61,8 @@ class Job:
             "url": self.url,
             "title": self.title,
             "height": self.height,
+            "audio": self.audio,
+            "audio_only": self.audio_only,
             "status": self.status,
             "percent": round(pct, 1) if pct is not None else None,
             "eta_label": progress.format_eta(self.eta) if self.status == DOWNLOADING else "",
@@ -86,9 +90,23 @@ class JobRegistry:
         # Bumped on every mutation so the SSE loop can skip identical frames.
         self._revision = 0
 
-    def create(self, url: str, height: int | None, title: str) -> Job:
+    def create(
+        self,
+        url: str,
+        height: int | None,
+        title: str,
+        audio: bool = True,
+        audio_only: bool = False,
+    ) -> Job:
         with self._lock:
-            job = Job(id=f"j{next(self._ids)}", url=url, height=height, title=title)
+            job = Job(
+                id=f"j{next(self._ids)}",
+                url=url,
+                height=height,
+                title=title,
+                audio=audio,
+                audio_only=audio_only,
+            )
             self._jobs[job.id] = job
             self._revision += 1
             return job

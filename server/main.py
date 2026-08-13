@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import downloader, jobs
+from app import downloader, jobs, updater
 from app.jobs import registry
 
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -43,6 +43,8 @@ class DownloadRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     height: int | None = None
     title: str = ""
+    audio: bool = True
+    audio_only: bool = False
 
 
 def _require_http(url: str) -> str:
@@ -69,7 +71,13 @@ async def probe(request: ProbeRequest) -> dict:
 @app.post("/api/download")
 async def start_download(request: DownloadRequest) -> dict:
     url = _require_http(request.url)
-    job = downloader.start(url, request.height, request.title or "Fetching…")
+    job = downloader.start(
+        url,
+        request.height,
+        request.title or "Fetching…",
+        audio=request.audio,
+        audio_only=request.audio_only,
+    )
     return {"id": job.id}
 
 
@@ -133,7 +141,20 @@ async def events() -> StreamingResponse:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"download_dir": str(downloader.DOWNLOAD_DIR), "max_concurrent": downloader.MAX_CONCURRENT}
+    return {
+        "download_dir": str(downloader.DOWNLOAD_DIR),
+        "max_concurrent": downloader.MAX_CONCURRENT,
+        "ytdlp_version": updater.installed_version(),
+    }
+
+
+@app.post("/api/update")
+async def update_extractors() -> dict:
+    """Fetch the newest yt-dlp so extractors keep working between releases."""
+    try:
+        return await run_in_threadpool(updater.update)
+    except Exception as exc:  # noqa: BLE001 - the network reason is the useful part
+        raise HTTPException(502, f"Could not update yt-dlp: {exc}") from exc
 
 
 # Mounted last so the API routes above win. Only present after `npm run build`.

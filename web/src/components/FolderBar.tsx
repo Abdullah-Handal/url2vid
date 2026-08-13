@@ -1,4 +1,5 @@
 interface Props {
+  native: boolean;
   supported: boolean;
   folderName: string | null;
   needsPermission: boolean;
@@ -6,6 +7,7 @@ interface Props {
   onPick: () => void;
   onReconnect: () => void;
   onForget: () => void;
+  onReveal: () => void;
 }
 
 /**
@@ -16,6 +18,7 @@ interface Props {
  * own folder and each finished row offers a Save button instead.
  */
 export function FolderBar({
+  native,
   supported,
   folderName,
   needsPermission,
@@ -23,7 +26,27 @@ export function FolderBar({
   onPick,
   onReconnect,
   onForget,
+  onReveal,
 }: Props) {
+  // In the desktop app the server writes straight into this folder, so there
+  // is nothing to grant, renew or save a second time.
+  if (native) {
+    return (
+      <div className="folderbar folderbar--set">
+        <span className="folderbar__label">Saving to</span>
+        <code className="folderbar__path" title={defaultDir}>
+          {defaultDir}
+        </code>
+        <button className="button button--small button--primary" type="button" onClick={onPick}>
+          Change…
+        </button>
+        <button className="button button--small button--quiet" type="button" onClick={onReveal}>
+          Open folder
+        </button>
+      </div>
+    );
+  }
+
   if (!supported) {
     return (
       <div className="folderbar folderbar--plain">

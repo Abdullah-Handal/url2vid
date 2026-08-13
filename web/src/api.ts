@@ -25,14 +25,32 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 
 export const probe = (url: string) => post<Probe>("/api/probe", { url });
 
-export const startDownload = (url: string, height: number | null, title: string) =>
-  post<{ id: string }>("/api/download", { url, height, title });
+export const startDownload = (
+  url: string,
+  height: number | null,
+  title: string,
+  options: { audio?: boolean; audioOnly?: boolean } = {},
+) =>
+  post<{ id: string }>("/api/download", {
+    url,
+    height,
+    title,
+    audio: options.audio ?? true,
+    audio_only: options.audioOnly ?? false,
+  });
 
 export const cancelJob = (id: string) => post<{ ok: boolean }>(`/api/jobs/${id}/cancel`);
 
 export const clearFinished = () => post<{ cleared: number }>("/api/jobs/clear");
 
-export const getConfig = async (): Promise<{ download_dir: string; max_concurrent: number }> => {
+export const updateExtractors = () =>
+  post<{ updated: boolean; current: string; latest: string }>("/api/update");
+
+export const getConfig = async (): Promise<{
+  download_dir: string;
+  max_concurrent: number;
+  ytdlp_version: string;
+}> => {
   const response = await fetch("/api/config");
   if (!response.ok) await fail(response);
   return response.json();

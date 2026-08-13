@@ -5,6 +5,7 @@ interface Props {
   job: Job;
   save?: SaveInfo;
   folderName: string | null;
+  native: boolean;
   onCancel: (id: string) => void;
 }
 
@@ -17,7 +18,7 @@ const STATUS_WORD: Record<Job["status"], string> = {
   cancelled: "cancelled",
 };
 
-export function JobRow({ job, save, folderName, onCancel }: Props) {
+export function JobRow({ job, save, folderName, native, onCancel }: Props) {
   const running = job.status === "downloading";
   const pct = job.percent;
   const finished = job.status === "done";
@@ -67,6 +68,10 @@ export function JobRow({ job, save, folderName, onCancel }: Props) {
           </button>
         )}
 
+        {/* The desktop build downloads straight into the chosen folder, so
+            there is no second copy to make and nothing to report but success. */}
+        {finished && native && <span className="job__save job__save--ok">✓ Saved</span>}
+
         {finished && save?.state === "saving" && <span className="job__save">Saving to {folderName}…</span>}
         {finished && save?.state === "saved" && (
           <span className="job__save job__save--ok">✓ Saved to {folderName}</span>
@@ -77,7 +82,7 @@ export function JobRow({ job, save, folderName, onCancel }: Props) {
 
         {/* Always offered: it is the only route when no folder is set, and the
             way to put a second copy somewhere else when one is. */}
-        {finished && (
+        {finished && !native && (
           <a className="button button--small" href={fileUrl(job.id)} download={job.filename ?? undefined}>
             Save…
           </a>

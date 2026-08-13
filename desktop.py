@@ -54,7 +54,16 @@ class _Server:
 
         self._sock = sock
         self._config = uvicorn.Config(
-            fastapi_app, log_level="warning", access_log=False, lifespan="off"
+            fastapi_app,
+            log_level="warning",
+            access_log=False,
+            lifespan="off",
+            # Stated rather than auto-detected: uvloop and httptools are
+            # optional C accelerators worth ~17 MB that a loopback server
+            # serving one user gains nothing from. Naming the pure-Python
+            # pair here means excluding them cannot alter behaviour.
+            loop="asyncio",
+            http="h11",
         )
         self._server = uvicorn.Server(self._config)
         self._thread = threading.Thread(target=self._run, name="server", daemon=True)

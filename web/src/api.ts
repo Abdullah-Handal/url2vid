@@ -29,7 +29,7 @@ export const startDownload = (
   url: string,
   height: number | null,
   title: string,
-  options: { audio?: boolean; audioOnly?: boolean } = {},
+  options: { audio?: boolean; audioOnly?: boolean; audioKbps?: number } = {},
 ) =>
   post<{ id: string }>("/api/download", {
     url,
@@ -37,6 +37,7 @@ export const startDownload = (
     title,
     audio: options.audio ?? true,
     audio_only: options.audioOnly ?? false,
+    audio_kbps: options.audioKbps ?? null,
   });
 
 export const cancelJob = (id: string) => post<{ ok: boolean }>(`/api/jobs/${id}/cancel`);

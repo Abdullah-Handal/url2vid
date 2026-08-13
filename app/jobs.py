@@ -32,6 +32,7 @@ class Job:
     height: int | None = None
     audio: bool = True
     audio_only: bool = False
+    audio_kbps: int | None = None
     status: str = QUEUED
     downloaded_bytes: int = 0
     total_bytes: int | None = None
@@ -63,6 +64,7 @@ class Job:
             "height": self.height,
             "audio": self.audio,
             "audio_only": self.audio_only,
+            "audio_kbps": self.audio_kbps,
             "status": self.status,
             "percent": round(pct, 1) if pct is not None else None,
             "eta_label": progress.format_eta(self.eta) if self.status == DOWNLOADING else "",
@@ -97,6 +99,7 @@ class JobRegistry:
         title: str,
         audio: bool = True,
         audio_only: bool = False,
+        audio_kbps: int | None = None,
     ) -> Job:
         with self._lock:
             job = Job(
@@ -106,6 +109,7 @@ class JobRegistry:
                 title=title,
                 audio=audio,
                 audio_only=audio_only,
+                audio_kbps=audio_kbps,
             )
             self._jobs[job.id] = job
             self._revision += 1

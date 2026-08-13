@@ -74,6 +74,38 @@ def format_bytes(num: int | float | None) -> str:
     return ""
 
 
+MP3_KBPS = 192
+
+# Offered MP3 bitrates, best first. Encoding above the source stream's own
+# bitrate cannot add detail, so the ceiling is kept sane rather than silly.
+AUDIO_BITRATES = (320, 256, 192, 128, 96)
+
+
+def mp3_estimate(duration: float | None, kbps: int = MP3_KBPS) -> int | None:
+    """Rough size of the MP3 a download will be converted into.
+
+    The source audio stream's own filesize is the wrong number to show here:
+    it is what crosses the network, not what is kept. A ten-minute track can
+    arrive as a 30 MB Opus stream and land as a 14 MB MP3. Constant bitrate
+    makes the arithmetic exact enough to be useful.
+    """
+    if not duration or duration <= 0:
+        return None
+    return int(duration * kbps * 1000 / 8)
+
+
+def audio_options(duration: float | None) -> list[dict]:
+    """The MP3 bitrates on offer, each with the size it would produce."""
+    return [
+        {
+            "kbps": kbps,
+            "label": f"{kbps} kbps",
+            "size_label": format_bytes(mp3_estimate(duration, kbps)),
+        }
+        for kbps in AUDIO_BITRATES
+    ]
+
+
 def dedupe_heights(formats: list[dict]) -> list[dict]:
     """Collapse a yt-dlp format list into one entry per offered resolution.
 

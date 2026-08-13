@@ -32,6 +32,12 @@ export interface Format {
   size_label: string;
 }
 
+export interface AudioOption {
+  kbps: number;
+  label: string;
+  size_label: string;
+}
+
 export interface Probe {
   title: string;
   duration: number | null;
@@ -39,6 +45,9 @@ export interface Probe {
   extractor: string | null;
   webpage_url: string;
   formats: Format[];
+  /** Estimated size of the converted MP3, not of the source stream. */
+  audio_size_label: string;
+  audio_options: AudioOption[];
   note: string | null;
   /** True when there is no resolution to choose, so the download can just start. */
   auto: boolean;
@@ -56,6 +65,7 @@ export interface DownloadOptions {
   height: string;
   audio: boolean;
   audioOnly: boolean;
+  audioKbps: number;
 }
 
 /** Where a finished video has got to on its way to the chosen folder. */

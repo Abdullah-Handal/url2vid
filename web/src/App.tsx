@@ -18,7 +18,12 @@ const reason = (error: unknown) => (error instanceof Error ? error.message : Str
 // and let a second writable stream open on a file already being written.
 const attempted = new Set<string>();
 
-const DEFAULT_OPTIONS: DownloadOptions = { height: "best", audio: true, audioOnly: false };
+const DEFAULT_OPTIONS: DownloadOptions = {
+  height: "best",
+  audio: true,
+  audioOnly: false,
+  audioKbps: 192,
+};
 
 export default function App() {
   const [url, setUrl] = useState("");
@@ -107,10 +112,10 @@ export default function App() {
           target.webpage_url,
           chosen.audioOnly || chosen.height === "best" ? null : Number(chosen.height),
           target.title,
-          { audio: chosen.audio, audioOnly: chosen.audioOnly },
+          { audio: chosen.audio, audioOnly: chosen.audioOnly, audioKbps: chosen.audioKbps },
         );
         const what = chosen.audioOnly
-          ? "audio only"
+          ? `audio only, ${chosen.audioKbps} kbps MP3`
           : `${chosen.height === "best" ? "best quality" : `${chosen.height}p`}${
               chosen.audio ? "" : ", no audio"
             }`;

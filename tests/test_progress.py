@@ -141,3 +141,36 @@ class TestAudioModes:
 
     def test_normal_download_still_merges_video_and_audio(self):
         assert "+bestaudio" in progress.format_selector(1080)
+
+
+class TestMp3Estimate:
+    def test_scales_with_duration(self):
+        # 600 s at 192 kbps -> 600 * 192000 / 8 bytes
+        assert progress.mp3_estimate(600) == 14_400_000
+
+    def test_unknown_duration_gives_no_number(self):
+        assert progress.mp3_estimate(None) is None
+        assert progress.mp3_estimate(0) is None
+
+    def test_is_not_the_source_stream_size(self):
+        # The point of the estimate: a 30 MB Opus stream becomes a much
+        # smaller MP3, so showing the source size would mislead.
+        assert progress.mp3_estimate(600) < 30_000_000
+
+
+class TestAudioOptions:
+    def test_offers_bitrates_best_first(self):
+        options = progress.audio_options(600)
+        assert [o["kbps"] for o in options] == list(progress.AUDIO_BITRATES)
+        assert options[0]["kbps"] > options[-1]["kbps"]
+
+    def test_size_falls_with_bitrate(self):
+        options = progress.audio_options(600)
+        sizes = [progress.mp3_estimate(600, o["kbps"]) for o in options]
+        assert sizes == sorted(sizes, reverse=True)
+
+    def test_unknown_duration_still_offers_the_choices(self):
+        # No duration means no size to show, but the bitrates remain pickable.
+        options = progress.audio_options(None)
+        assert len(options) == len(progress.AUDIO_BITRATES)
+        assert all(o["size_label"] == "" for o in options)

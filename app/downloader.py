@@ -80,6 +80,7 @@ def probe(url: str) -> dict:
         info = entries[0]
 
     heights = progress.dedupe_heights(info.get("formats") or [])
+    duration = info.get("duration")
     return {
         "title": info.get("title") or "Untitled video",
         "duration": info.get("duration"),
@@ -87,6 +88,8 @@ def probe(url: str) -> dict:
         "extractor": info.get("extractor_key") or info.get("extractor"),
         "webpage_url": info.get("webpage_url") or url,
         "formats": heights,
+        "audio_size_label": progress.format_bytes(progress.mp3_estimate(duration)),
+        "audio_options": progress.audio_options(duration),
         "note": playlist_note,
     }
 
@@ -224,7 +227,9 @@ def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
     return progress_hook, postprocessor_hook, state
 
 
-def mode_marker(height: int | None, audio: bool, audio_only: bool) -> str:
+def mode_marker(
+    height: int | None, audio: bool, audio_only: bool, audio_kbps: int | None = None
+) -> str:
     """Short tag describing what a job actually fetches.
 
     Without it, the same video downloaded twice in different modes lands on one
@@ -233,7 +238,9 @@ def mode_marker(height: int | None, audio: bool, audio_only: bool) -> str:
     after 144p would quietly return the 144p copy.
     """
     if audio_only:
-        return "audio"
+        # The bitrate belongs in the name too: two MP3s of one track at
+        # different qualities are different files.
+        return f"audio {audio_kbps}k" if audio_kbps else "audio"
     quality = f"{height}p" if height else "best"
     return quality if audio else f"{quality} silent"
 
@@ -321,7 +328,8 @@ def _run(job_id: str) -> None:
         opts = _base_opts() | {
             "format": selector,
             "outtmpl": _output_template(
-                info, mode_marker(job.height, job.audio, job.audio_only)
+                info,
+                mode_marker(job.height, job.audio, job.audio_only, job.audio_kbps),
             ),
             "paths": {"home": str(DOWNLOAD_DIR)},
             "progress_hooks": [progress_hook],
@@ -333,7 +341,18 @@ def _run(job_id: str) -> None:
         }
         # Only a video download has two streams to combine; forcing mp4 on an
         # audio-only job would hand ffmpeg a container it should not be using.
-        if not job.audio_only:
+        if job.audio_only:
+            # Sites serve Opus or AAC, never MP3, so this is a real re-encode
+            # rather than a repackage -- ffmpeg has to do the work, and the job
+            # sits in the converting state while it does.
+            opts["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": str(job.audio_kbps or progress.MP3_KBPS),
+                }
+            ]
+        else:
             opts["merge_output_format"] = "mp4"
         with yt_dlp.YoutubeDL(opts) as ydl:
             result = ydl.process_ie_result(info, download=True)
@@ -483,11 +502,17 @@ def start(
     title: str,
     audio: bool = True,
     audio_only: bool = False,
+    audio_kbps: int | None = None,
 ) -> jobs.Job:
     """Register a job and hand it to the worker pool."""
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     job = registry.create(
-        url=url, height=height, title=title, audio=audio, audio_only=audio_only
+        url=url,
+        height=height,
+        title=title,
+        audio=audio,
+        audio_only=audio_only,
+        audio_kbps=audio_kbps,
     )
     _pool.submit(_run, job.id)
     return job

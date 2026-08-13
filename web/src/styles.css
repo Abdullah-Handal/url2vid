@@ -272,6 +272,8 @@ body {
 .toggle:hover:not(:disabled) { color: var(--text); border-color: var(--cyan-dim); transform: translateY(-1px); }
 .toggle:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.toggle__size { font-size: 10px; opacity: 0.6; letter-spacing: 0.2px; }
+
 .toggle__dot {
   width: 9px;
   height: 9px;

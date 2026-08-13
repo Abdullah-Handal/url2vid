@@ -78,8 +78,8 @@ class TestDownloadRoutes:
         monkeypatch.setattr(
             downloader,
             "start",
-            lambda url, height, title, audio=True, audio_only=False: registry.create(
-                url, height, title, audio, audio_only
+            lambda url, height, title, audio=True, audio_only=False, audio_kbps=None: (
+                registry.create(url, height, title, audio, audio_only, audio_kbps)
             ),
         )
         body = client.post(

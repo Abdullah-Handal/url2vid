@@ -9,6 +9,11 @@ interface Props {
   onCancel: (id: string) => void;
 }
 
+// Audio-only jobs re-encode to MP3 rather than merging two streams, so the
+// same postprocessing phase deserves a different word.
+const statusWord = (job: Job): string =>
+  job.status === "merging" && job.audio_only ? "converting" : STATUS_WORD[job.status];
+
 const STATUS_WORD: Record<Job["status"], string> = {
   queued: "waiting",
   downloading: "",
@@ -53,7 +58,7 @@ export function JobRow({ job, save, folderName, native, onCancel }: Props) {
           <div className="job__meta">
             <span className="job__pct">{pct === null ? "—" : `${pct.toFixed(1)}%`}</span>
             <span className="job__word">
-              {running ? job.eta_label || "…" : STATUS_WORD[job.status]}
+              {running ? job.eta_label || "…" : statusWord(job)}
               {running && job.speed_label ? ` · ${job.speed_label}` : ""}
             </span>
             <span className="job__size">{job.size_label}</span>

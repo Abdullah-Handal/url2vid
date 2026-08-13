@@ -45,36 +45,58 @@ export function FoundPanel({ found, options, onChange, onDownload }: Props) {
           {meta.length > 0 && <p className="found__meta">{meta.join(" · ")}</p>}
           {found.note && <p className="found__note">{found.note}</p>}
 
-          {found.formats.length > 0 && (
-            <div className="quality" data-disabled={options.audioOnly || undefined}>
-              <span className="quality__label">Quality</span>
+          {/* One row of choices, showing whichever the mode calls for.
+              Greying out resolutions during an audio download would leave the
+              panel mostly dead; swapping them keeps the choice meaningful. */}
+          {options.audioOnly ? (
+            <div className="quality">
+              <span className="quality__label">Audio quality</span>
               <div className="quality__row">
-                {found.formats.map((format) => (
+                {found.audio_options.map((option) => (
                   <button
-                    key={format.height}
+                    key={option.kbps}
                     type="button"
-                    className={`chip ${
-                      options.height === String(format.height) ? "chip--on" : ""
-                    }`}
-                    disabled={options.audioOnly}
-                    onClick={() => set({ height: String(format.height) })}
+                    className={`chip ${options.audioKbps === option.kbps ? "chip--on" : ""}`}
+                    onClick={() => set({ audioKbps: option.kbps })}
                   >
-                    <span className="chip__label">{format.label}</span>
-                    {format.size_label && (
-                      <span className="chip__size">~{format.size_label}</span>
+                    <span className="chip__label">{option.label}</span>
+                    {option.size_label && (
+                      <span className="chip__size">~{option.size_label}</span>
                     )}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className={`chip ${options.height === "best" ? "chip--on" : ""}`}
-                  disabled={options.audioOnly}
-                  onClick={() => set({ height: "best" })}
-                >
-                  <span className="chip__label">Best</span>
-                </button>
               </div>
             </div>
+          ) : (
+            found.formats.length > 0 && (
+              <div className="quality">
+                <span className="quality__label">Quality</span>
+                <div className="quality__row">
+                  {found.formats.map((format) => (
+                    <button
+                      key={format.height}
+                      type="button"
+                      className={`chip ${
+                        options.height === String(format.height) ? "chip--on" : ""
+                      }`}
+                      onClick={() => set({ height: String(format.height) })}
+                    >
+                      <span className="chip__label">{format.label}</span>
+                      {format.size_label && (
+                        <span className="chip__size">~{format.size_label}</span>
+                      )}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`chip ${options.height === "best" ? "chip--on" : ""}`}
+                    onClick={() => set({ height: "best" })}
+                  >
+                    <span className="chip__label">Best</span>
+                  </button>
+                </div>
+              </div>
+            )
           )}
         </div>
 
@@ -109,7 +131,7 @@ export function FoundPanel({ found, options, onChange, onDownload }: Props) {
           onClick={() => set({ audioOnly: !options.audioOnly })}
         >
           <span className="toggle__dot" />
-          Audio only
+          Audio only (MP3)
         </button>
       </div>
 

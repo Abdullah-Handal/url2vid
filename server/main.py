@@ -45,6 +45,7 @@ class DownloadRequest(BaseModel):
     title: str = ""
     audio: bool = True
     audio_only: bool = False
+    audio_kbps: int | None = None
 
 
 def _require_http(url: str) -> str:
@@ -77,6 +78,7 @@ async def start_download(request: DownloadRequest) -> dict:
         request.title or "Fetching…",
         audio=request.audio,
         audio_only=request.audio_only,
+        audio_kbps=request.audio_kbps,
     )
     return {"id": job.id}
 

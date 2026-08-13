@@ -178,3 +178,13 @@ class TestModeMarker:
 
     def test_no_marker_leaves_the_name_clean(self):
         assert "[]" not in downloader._output_template({"id": "abc123", "title": "Clip"})
+
+
+class TestAudioBitrateMarker:
+    def test_two_bitrates_do_not_share_a_filename(self):
+        assert downloader.mode_marker(None, True, True, 320) != downloader.mode_marker(
+            None, True, True, 128
+        )
+
+    def test_falls_back_when_no_bitrate_given(self):
+        assert downloader.mode_marker(None, True, True) == "audio"

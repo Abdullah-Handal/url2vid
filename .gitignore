@@ -9,3 +9,5 @@ bin/
 build/
 dist/
 *.spec.bak
+dist-onefile/
+installer/

@@ -4,8 +4,11 @@
 Run with:  pyinstaller url2vid.spec
 """
 
+import os
 import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules
+
+ONEFILE = os.environ.get("URL2VID_ONEFILE") == "1"
 
 datas = [
     ("web/dist", "web/dist"),
@@ -75,8 +78,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    *([] if ONEFILE else [[]]),
+    *([a.binaries, a.datas] if ONEFILE else []),
+    exclude_binaries=not ONEFILE,
     name="url2vid",
     debug=False,
     bootloader_ignore_signals=False,
@@ -85,11 +89,12 @@ exe = EXE(
     console=False,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=False,
-    name="url2vid",
-)
+if not ONEFILE:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=False,
+        name="url2vid",
+    )

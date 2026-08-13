@@ -18,7 +18,7 @@ jobs:
           - os: ubuntu-latest
             artifact: url2vid-linux-x86_64.tar.gz
           - os: windows-latest
-            artifact: url2vid-windows-x86_64.zip
+            artifact: url2vid-windows-setup.exe
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -89,17 +89,44 @@ jobs:
         if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.artifact }} -C dist url2vid
 
-      - name: Archive (Windows)
+      # A single setup .exe rather than a zip: it lands the folder somewhere
+      # sensible, makes the shortcuts, and registers an uninstaller.
+      - name: Build the installer (Windows)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/url2vid -DestinationPath ${{ matrix.artifact }}
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v',''
+          if (-not $version) { $version = "0.0.0" }
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$version" packaging\url2vid.iss
+          Copy-Item installer\url2vid-windows-setup.exe url2vid-windows-setup.exe
+
+      # Also a no-install single file, for a USB stick. It unpacks itself on
+      # every launch, so it starts noticeably slower than the installed copy.
+      - name: Build the portable exe (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          URL2VID_ONEFILE: "1"
+        run: |
+          pyinstaller url2vid.spec --noconfirm --log-level WARN --distpath dist-onefile
+          cp dist-onefile/url2vid.exe url2vid-windows-portable.exe
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          # Globs, so the patterns that belong to the other platform simply
+          # match nothing instead of failing the step.
+          path: |
+            url2vid-linux-*.tar.gz
+            url2vid-windows-*.exe
+          if-no-files-found: error
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}
+          files: |
+            url2vid-linux-*.tar.gz
+            url2vid-windows-*.exe

@@ -108,26 +108,83 @@ You do not have to reinstall the app to keep it working.
 ## Running from source
 
 The desktop app is the packaged form of the same code. To run it directly you
-need **Python 3.11+**, **Node** (for the UI), and **ffmpeg** on your PATH:
+need **[Git](https://git-scm.com/downloads)**, **Python 3.11+**, **Node** (for
+the UI), and **ffmpeg** on your PATH.
+
+**Windows** — in Command Prompt (`cmd`):
+
+```bat
+git clone https://github.com/Abdullah-Handal/url2vid.git
+cd url2vid
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+cd web && npm install && npm run build && cd ..
+```
+
+Then pick a front end:
+
+```bat
+.venv\Scripts\python desktop.py     :: native window
+.venv\Scripts\python run_web.py     :: browser UI on http://127.0.0.1:8000
+.venv\Scripts\python url2vid.py     :: terminal dashboard
+```
+
+Or skip all of it: **`start-web.bat`** does the clone's worth of setup for you
+— virtualenv, packages, build, server, browser — and double-clicks straight
+from Explorer. Pass a port if 8000 is taken: `start-web.bat 9000`.
+
+**Linux / macOS**:
 
 ```bash
+git clone https://github.com/Abdullah-Handal/url2vid.git
+cd url2vid
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cd web && npm install && npm run build && cd ..
-.venv/bin/python desktop.py
 ```
 
-There are two other front ends over the same engine:
+Then pick a front end:
 
 ```bash
-.venv/bin/python url2vid.py                 # terminal dashboard
-.venv/bin/python url2vid.py "https://…"     # one-shot download
-.venv/bin/python url2vid.py "https://…" -r 1080
-.venv/bin/python url2vid.py "https://…" --list
-.venv/bin/python run_web.py                 # browser UI on http://127.0.0.1:8000
+.venv/bin/python desktop.py            # native window
+.venv/bin/python run_web.py            # browser UI on http://127.0.0.1:8000
+.venv/bin/python url2vid.py            # terminal dashboard
 ```
 
-For frontend work, run the two halves separately so the UI hot-reloads:
+`./start-web.sh` is the same one-tap shortcut as the `.bat`, and reads a port
+from the environment: `PORT=9000 ./start-web.sh`.
+
+### The terminal dashboard
+
+```
+  https://www.youtube.com/watch?v=aqz-KE-bpKQ            [ Fetch ]
+
+█ Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film
+█ Youtube · 10:35 · 8 resolutions
+
+  [ Best available     ▾ ]   [ Download ]
+```
+
+| Key | Action |
+|---|---|
+| `Enter` | look up the URL in the box |
+| `Esc` / `F2` | move focus to the list / back to the URL box |
+| `F3` | cancel the selected download |
+| `F4` | clear finished rows |
+| `F5` | show the downloads folder |
+| `Ctrl+Q` | quit |
+
+It also downloads in one shot, without the dashboard:
+
+```bash
+.venv/bin/python url2vid.py "https://…"
+.venv/bin/python url2vid.py "https://…" -r 1080     # cap the resolution
+.venv/bin/python url2vid.py "https://…" --list      # show resolutions, don't download
+```
+
+### Frontend work
+
+Run the two halves separately so the UI hot-reloads:
 
 ```bash
 .venv/bin/python run_web.py            # API on :8000

@@ -79,12 +79,32 @@ class TestDedupeHeights:
         ]
         assert [f["height"] for f in progress.dedupe_heights(formats)] == [720]
 
-    def test_snaps_odd_heights_to_standard_rungs(self):
+    def test_labels_are_snapped_but_heights_stay_real(self):
+        # The label is cosmetic; the height is what the format selector
+        # filters on. Snapping the height itself means "height<=240" fails to
+        # match the 256p stream shown as 240p, and the request escalates to
+        # the best available instead.
         formats = [
             {"height": 1082, "vcodec": "avc1", "filesize": 10},
             {"height": 638, "vcodec": "avc1", "filesize": 10},
         ]
-        assert [f["height"] for f in progress.dedupe_heights(formats)] == [1080, 720]
+        result = progress.dedupe_heights(formats)
+        assert [f["label"] for f in result] == ["1080p", "720p"]
+        assert [f["height"] for f in result] == [1082, 638]
+
+    def test_a_selection_matches_the_format_it_came_from(self):
+        formats = [{"height": 256, "vcodec": "avc1", "filesize": 10}]
+        entry = progress.dedupe_heights(formats)[0]
+        assert entry["label"] == "240p"
+        assert 256 <= entry["height"]  # "height<=" must still include it
+
+    def test_size_includes_the_audio_that_gets_merged_in(self):
+        # A video-only stream's own size is not what ends up on disk.
+        formats = [
+            {"height": 240, "vcodec": "av01", "acodec": "none", "filesize": 1_000_000},
+            {"height": None, "vcodec": "none", "acodec": "mp4a", "filesize": 3_000_000},
+        ]
+        assert progress.dedupe_heights(formats)[0]["size_label"] == "3.8 MB"
 
     def test_empty_list(self):
         assert progress.dedupe_heights([]) == []
@@ -99,7 +119,15 @@ class TestFormatSelector:
 
     def test_always_has_muxed_fallback(self):
         # Sites serving one pre-muxed stream have nothing to merge.
-        assert progress.format_selector(1080).endswith("/best")
+        assert progress.format_selector(1080).endswith("/worst")
+
+    def test_fallback_never_escalates_above_the_request(self):
+        # When nothing is small enough the tail decides what arrives. Asking
+        # for the smallest rendition and receiving the largest is the bug this
+        # guards: the old tail ended "bestvideo*+bestaudio/best".
+        selector = progress.format_selector(240)
+        assert "bestvideo*" not in selector
+        assert selector.endswith("worstvideo*+bestaudio/worst")
 
 
 class TestAudioModes:

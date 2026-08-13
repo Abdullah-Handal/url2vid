@@ -114,8 +114,19 @@ def total_from_estimates(estimates: list[int | None]) -> int | None:
 
 
 def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
-    """Build the progress and postprocessor hooks for one job."""
-    state = {"current_file": None, "speed": None, "estimates": list(estimates), "index": 0}
+    """Build the progress and postprocessor hooks for one job.
+
+    Returns the two hooks plus the shared state, which carries the set of
+    files written so a cancelled job can remove them.
+    """
+    state = {
+        "current_file": None,
+        "speed": None,
+        "estimates": list(estimates),
+        "index": 0,
+        # Every path yt-dlp writes to, so a cancelled job can erase them.
+        "files": set(),
+    }
 
     def progress_hook(d: dict) -> None:
         job = registry.get(job_id)
@@ -126,6 +137,11 @@ def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
 
         info = d.get("info_dict") or {}
         filename = info.get("_filename") or d.get("filename")
+        # tmpfilename is the ".part" actually being written; both are tracked
+        # because a cancel can land either side of the rename.
+        for candidate in (filename, d.get("filename"), d.get("tmpfilename")):
+            if candidate:
+                state["files"].add(candidate)
 
         if d["status"] == "downloading":
             # A new filename means yt-dlp moved on to the next stream; bank the
@@ -149,10 +165,21 @@ def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
             total = current.total_bytes if current else None
 
             if total is None:
-                # Unknown overall size: fall back to this stream's own totals
-                # and flag the reading as an estimate in the UI.
-                total = d.get("total_bytes") or d.get("total_bytes_estimate")
-                registry.update(job_id, total_bytes=total, estimated=True)
+                # Learn this stream's size as soon as yt-dlp reports it, then
+                # only publish a total once every stream's size is known.
+                #
+                # Substituting the current stream's size here (what this used
+                # to do) made a row read "1.5 MB" for a download whose audio
+                # track alone was 30 MB, and measured the percentage against
+                # one stream while completed_bytes counted them all. An honest
+                # "unknown" beats a confident wrong number: the UI already
+                # shows a moving stripe and "-" for that case.
+                seen = d.get("total_bytes") or d.get("total_bytes_estimate")
+                index = state["index"]
+                if seen and index < len(state["estimates"]):
+                    state["estimates"][index] = seen
+                total = total_from_estimates(state["estimates"])
+                registry.update(job_id, total_bytes=total, estimated=total is not None)
 
             eta = progress.eta_seconds(completed + downloaded, total, state["speed"])
             if eta is None:
@@ -194,7 +221,7 @@ def _make_hooks(job_id: str, estimates: list[int | None]) -> tuple:
         if d.get("status") == "started":
             registry.update(job_id, status=jobs.MERGING, speed=None, eta=None)
 
-    return progress_hook, postprocessor_hook
+    return progress_hook, postprocessor_hook, state
 
 
 def mode_marker(height: int | None, audio: bool, audio_only: bool) -> str:
@@ -226,6 +253,39 @@ def _output_template(info: dict, marker: str = "") -> str:
     return f"%(title).180B{tag}.%(ext)s"
 
 
+def _discard_partials(files: set[str]) -> None:
+    """Delete what a cancelled download left on disk.
+
+    yt-dlp writes a ".part" while fetching, plus ".ytdl" resume state and
+    numbered fragment files, and renames to the final name at the end. A cancel
+    can land either side of that rename, so every variant is swept.
+
+    Paths are confined to the download folder before anything is unlinked: the
+    names originate from yt-dlp rather than from this code, and deleting is not
+    something to do on an unchecked path.
+    """
+    root = DOWNLOAD_DIR.resolve()
+    for name in files:
+        try:
+            base = Path(name).resolve()
+        except OSError:
+            continue
+        if not base.is_relative_to(root):
+            continue
+        candidates = [base, Path(f"{base}.part"), Path(f"{base}.ytdl")]
+        try:
+            candidates.extend(base.parent.glob(f"{base.name}.part-Frag*"))
+        except OSError:
+            pass
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    candidate.unlink()
+            except OSError:
+                # A file already gone, or held open, must not mask the cancel.
+                pass
+
+
 def _run(job_id: str) -> None:
     job = registry.get(job_id)
     if job is None or job.cancel_requested:
@@ -233,6 +293,7 @@ def _run(job_id: str) -> None:
 
     selector = progress.format_selector(job.height, job.audio, job.audio_only)
     saved: str | None = None
+    hook_state: dict | None = None
 
     try:
         # Pass one: resolve the video and pick formats, downloading nothing.
@@ -246,7 +307,7 @@ def _run(job_id: str) -> None:
             info = entries[0]
 
         estimates = _stream_estimates(info)
-        progress_hook, postprocessor_hook = _make_hooks(job_id, estimates)
+        progress_hook, postprocessor_hook, hook_state = _make_hooks(job_id, estimates)
         registry.update(
             job_id,
             title=info.get("title") or job.title,
@@ -281,6 +342,7 @@ def _run(job_id: str) -> None:
             saved = downloads[0].get("filepath")
 
     except Cancelled:
+        _discard_partials(hook_state["files"] if hook_state else set())
         registry.update(job_id, status=jobs.CANCELLED, speed=None, eta=None)
         return
     except DownloadError as exc:

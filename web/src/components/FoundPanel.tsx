@@ -58,9 +58,11 @@ export function FoundPanel({ found, options, onChange, onDownload }: Props) {
                     }`}
                     disabled={options.audioOnly}
                     onClick={() => set({ height: String(format.height) })}
-                    title={format.size_label ? `about ${format.size_label}` : undefined}
                   >
-                    {format.label}
+                    <span className="chip__label">{format.label}</span>
+                    {format.size_label && (
+                      <span className="chip__size">~{format.size_label}</span>
+                    )}
                   </button>
                 ))}
                 <button
@@ -69,7 +71,7 @@ export function FoundPanel({ found, options, onChange, onDownload }: Props) {
                   disabled={options.audioOnly}
                   onClick={() => set({ height: "best" })}
                 >
-                  Best
+                  <span className="chip__label">Best</span>
                 </button>
               </div>
             </div>

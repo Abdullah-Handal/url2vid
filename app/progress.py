@@ -81,27 +81,50 @@ def dedupe_heights(formats: list[dict]) -> list[dict]:
     (different codecs and bitrates); the dropdown only needs each height once.
     Heights are snapped to the nearest known label so oddities like 1082 or
     638 present as 1080p and 720p rather than as their raw numbers.
+
+    ``height`` stays the real, unsnapped maximum for the bucket while ``label``
+    carries the tidy name. Selecting on a snapped number is a trap: a 256p
+    stream shown as "240p" is not matched by ``height<=240``, so the request
+    misses everything and falls through to the best available -- asking for the
+    smallest rendition and being handed the largest.
+
+    Sizes include the audio that will be merged in, since a video-only stream's
+    own filesize can be a small fraction of what actually gets downloaded.
     """
-    best: dict[int, dict] = {}
+    audio_sizes = [
+        fmt.get("filesize") or fmt.get("filesize_approx") or 0
+        for fmt in formats
+        if fmt.get("vcodec") in (None, "none") and fmt.get("acodec") not in (None, "none")
+    ]
+    best_audio = max(audio_sizes) if audio_sizes else 0
+
+    buckets: dict[int, dict] = {}
     for fmt in formats:
         if fmt.get("vcodec") in (None, "none"):
             continue  # audio-only rendition
         height = fmt.get("height")
         if not height:
             continue
-        label_height = _snap_height(int(height))
+        height = int(height)
         size = fmt.get("filesize") or fmt.get("filesize_approx") or 0
-        current = best.get(label_height)
-        # Keep the largest known size per height as the size estimate shown.
-        if current is None or size > current["approx_size"]:
-            best[label_height] = {
-                "height": label_height,
+        if size and fmt.get("acodec") in (None, "none"):
+            size += best_audio
+
+        bucket = buckets.setdefault(_snap_height(height), {"height": 0, "approx_size": 0})
+        # Largest real height in the bucket, so "height<=" covers the whole of it.
+        bucket["height"] = max(bucket["height"], height)
+        bucket["approx_size"] = max(bucket["approx_size"], size)
+
+    ordered = []
+    for label_height in sorted(buckets, reverse=True):
+        bucket = buckets[label_height]
+        ordered.append(
+            {
+                "height": bucket["height"],
                 "label": f"{label_height}p",
-                "approx_size": size,
+                "size_label": format_bytes(bucket["approx_size"]),
             }
-    ordered = [best[h] for h in sorted(best, reverse=True)]
-    for entry in ordered:
-        entry["size_label"] = format_bytes(entry.pop("approx_size"))
+        )
     return ordered
 
 
@@ -127,8 +150,12 @@ def format_selector(
         return f"bestvideo[height<={height}]/bestvideo/best"
     if height is None:
         return "bestvideo*+bestaudio/best"
+    # The tail matters: if nothing is small enough, fall back to the *smallest*
+    # rendition rather than the best one. The old tail asked for the best
+    # available, so a request no format could satisfy quietly downloaded the
+    # largest file on offer -- 708 MB when asked for the smallest.
     return (
         f"bestvideo[height<={height}]+bestaudio/"
         f"best[height<={height}]/"
-        f"bestvideo*+bestaudio/best"
+        f"worstvideo*+bestaudio/worst"
     )

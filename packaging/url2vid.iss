@@ -22,7 +22,8 @@ DefaultGroupName={#AppName}
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 DisableDirPage=no
-OutputDir=installer
+; Relative to this .iss file, so it is spelled from packaging/ upwards.
+OutputDir=..\installer
 OutputBaseFilename=url2vid-windows-setup
 Compression=lzma2/max
 SolidCompression=yes

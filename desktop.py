@@ -50,7 +50,10 @@ def _reserve_port(preferred: int = 0) -> tuple[socket.socket, int]:
     is running, including a second copy of this app.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # Not on Windows: there SO_REUSEADDR lets a second socket bind a port that
+    # is already in use, so a fixed --port could silently share someone's port.
+    if sys.platform != "win32":
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", preferred))
     sock.listen(128)
     return sock, sock.getsockname()[1]

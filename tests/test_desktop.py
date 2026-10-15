@@ -53,3 +53,61 @@ class TestPortSelection:
         finally:
             first_sock.close()
             second_sock.close()
+
+
+class TestDownloadFolder:
+    def test_missing_saved_folder_falls_back_to_the_default(self, tmp_path, monkeypatch):
+        """A saved folder on an unplugged drive must not stop the app starting."""
+        from app import downloader, paths
+
+        blocker = tmp_path / "not-a-folder"
+        blocker.write_text("a file where a folder should be")
+        monkeypatch.setattr(downloader, "DOWNLOAD_DIR", blocker / "videos")
+        monkeypatch.setattr(paths, "default_download_dir", lambda: tmp_path / "Downloads")
+
+        assert desktop._ensure_download_dir() == tmp_path / "Downloads"
+        assert (tmp_path / "Downloads").is_dir()
+
+    def test_an_available_folder_is_kept(self, tmp_path, monkeypatch):
+        from app import downloader
+
+        monkeypatch.setattr(downloader, "DOWNLOAD_DIR", tmp_path / "chosen")
+        assert desktop._ensure_download_dir() == tmp_path / "chosen"
+
+
+class _FakeWindow:
+    def __init__(self, loaded: bool, counts: list[bool]):
+        import threading
+        from types import SimpleNamespace
+
+        event = threading.Event()
+        if loaded:
+            event.set()
+        self.events = SimpleNamespace(loaded=event)
+        self._counts = counts
+
+    def evaluate_js(self, script: str):
+        return self._counts.pop(0) if len(self._counts) > 1 else self._counts[0]
+
+
+class TestWindowCheck:
+    def test_waits_for_react_to_mount(self, monkeypatch):
+        monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
+        assert desktop._window_renders(_FakeWindow(True, [False, False, True]), timeout=5) is True
+
+    def test_a_page_that_never_loads_fails(self):
+        assert desktop._window_renders(_FakeWindow(False, [True]), timeout=0.1) is False
+
+
+class TestJsApi:
+    def test_exposes_only_its_methods_to_the_page(self):
+        """pywebview walks every public attribute of the js_api object.
+
+        A public ``window`` attribute sent it through the entire native window
+        object graph on each page load, so on Windows the page's bridge took
+        minutes to appear and the app silently fell back to browser mode.
+        """
+        api = desktop.Api()
+        api._window = object()
+        public = [name for name in dir(api) if not name.startswith("_")]
+        assert public == ["choose_folder", "reveal_downloads"]

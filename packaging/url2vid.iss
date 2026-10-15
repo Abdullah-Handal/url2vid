@@ -1,7 +1,10 @@
 ; Inno Setup script for the url2vid installer.
 ;
-; Installs under the user's Documents folder and asks for no administrator
-; rights, so it works on a locked-down machine and needs no UAC prompt.
+; Installs per user under %LOCALAPPDATA%\Programs and asks for no
+; administrator rights, so it works on a locked-down machine and needs no UAC
+; prompt. Not Documents: that folder is often synced by OneDrive (which can
+; evict the app's DLLs to the cloud) and guarded by Controlled Folder Access
+; (which blocks an unsigned installer writing there).
 ;
 ; Build with:  ISCC /DAppVersion=0.1.1 packaging\url2vid.iss
 
@@ -16,7 +19,9 @@
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Abdullah-Handal
-DefaultDirName={userdocs}\{#AppName}
+; {autopf} is the per-user Programs folder when installing without admin.
+; An existing install is upgraded in place wherever it is.
+DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 ; "lowest" keeps the whole install inside the user's own profile.
 PrivilegesRequired=lowest

@@ -13,6 +13,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -50,10 +51,30 @@ def _reserve_port(preferred: int = 0) -> tuple[socket.socket, int]:
     is running, including a second copy of this app.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # Not on Windows: there SO_REUSEADDR lets a second socket bind a port that
+    # is already in use, so a fixed --port could silently share someone's port.
+    if sys.platform != "win32":
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", preferred))
     sock.listen(128)
     return sock, sock.getsockname()[1]
+
+
+def _ensure_download_dir() -> Path:
+    """Make sure the download folder exists, falling back to the OS default.
+
+    The saved folder may be on a USB stick or network drive that is not there
+    today. Failing to create it used to kill the windowed app at launch with
+    nothing on screen. The saved choice is left alone so it works again once
+    the drive is back.
+    """
+    try:
+        downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.warning("download folder %s unavailable (%s); using the default", downloader.DOWNLOAD_DIR, exc)
+        downloader.DOWNLOAD_DIR = paths.default_download_dir()
+        downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    return downloader.DOWNLOAD_DIR
 
 
 class _Server:
@@ -107,7 +128,11 @@ class Api:
     """Methods the page can call as ``window.pywebview.api.*``."""
 
     def __init__(self) -> None:
-        self.window = None
+        # Private on purpose: pywebview exposes every public attribute of this
+        # object to the page, recursing into it. A public window made it walk
+        # the whole WinForms object graph on each page load, so the bridge
+        # took minutes to appear and the UI fell back to browser mode.
+        self._window = None
 
     def choose_folder(self) -> dict:
         """Open the OS folder picker and send downloads there from now on.
@@ -118,9 +143,9 @@ class Api:
         """
         import webview
 
-        if self.window is None:
+        if self._window is None:
             return {"ok": False, "error": "No window."}
-        picked = self.window.create_file_dialog(
+        picked = self._window.create_file_dialog(
             webview.FOLDER_DIALOG, directory=str(downloader.DOWNLOAD_DIR)
         )
         if not picked:
@@ -150,8 +175,11 @@ class Api:
         return {"ok": True}
 
 
-def _open_window(url: str, api: Api) -> bool:
-    """Show the app in a native window. False if no webview is available."""
+def _open_window(url: str, api: Api, on_start=None) -> bool:
+    """Show the app in a native window. False if no webview is available.
+
+    ``on_start(window)`` runs on its own thread once the GUI loop is up.
+    """
     try:
         import webview
     except ImportError:
@@ -167,12 +195,37 @@ def _open_window(url: str, api: Api) -> bool:
             min_size=MIN_SIZE,
             js_api=api,
         )
-        api.window = window
-        webview.start()
+        api._window = window
+        if on_start:
+            webview.start(on_start, window)
+        else:
+            webview.start()
         return True
     except Exception as exc:  # noqa: BLE001 - any backend failure falls back
         log.warning("native window unavailable: %s", exc)
         return False
+
+
+# The UI has mounted, and the Python bridge (folder picker) is reachable.
+_RENDERED_JS = (
+    "document.getElementById('root').childElementCount > 0 && "
+    "typeof (window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder) === 'function'"
+)
+
+
+def _window_renders(window, timeout: float = 60.0) -> bool:
+    """True once the page has mounted the React UI and can reach Python."""
+    if not window.events.loaded.wait(timeout):
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if window.evaluate_js(_RENDERED_JS):
+                return True
+        except Exception:  # noqa: BLE001 - the page may still be loading
+            pass
+        time.sleep(0.5)
+    return False
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -181,6 +234,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--serve",
         action="store_true",
         help="run the server without opening a window (used by the build's smoke test)",
+    )
+    parser.add_argument(
+        "--check-window",
+        action="store_true",
+        help="open the window, confirm the UI renders, then exit (used by the build's smoke test)",
     )
     parser.add_argument(
         "--port", type=int, default=0, help="port to listen on; 0 lets the OS choose"
@@ -200,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_download_dir()
 
     sock, port = _reserve_port(args.port)
     url = f"http://127.0.0.1:{port}"
@@ -222,6 +280,24 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             server.stop()
         return 0
+
+    if args.check_window:
+        # Proves the part --serve never touches: the webview backend (WinForms
+        # via pythonnet + WebView2 on Windows, GTK + WebKit on Linux) loads in
+        # the frozen build and actually renders the page.
+        result = {}
+
+        def check(window) -> None:
+            result["ok"] = _window_renders(window)
+            window.destroy()
+
+        try:
+            opened = _open_window(url, Api(), on_start=check)
+        finally:
+            server.stop()
+        ok = opened and result.get("ok", False)
+        print("url2vid window rendered" if ok else "url2vid window did not render", flush=True)
+        return 0 if ok else 1
 
     try:
         if not _open_window(url, Api()):

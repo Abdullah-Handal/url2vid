@@ -14,6 +14,7 @@ import io
 import shutil
 import sys
 import tarfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -40,6 +41,7 @@ WINDOWS = (
     "ffmpeg-master-latest-win64-gpl.zip"
 )
 WANTED = ("ffmpeg", "ffprobe")
+ATTEMPTS = 3
 
 
 def _download(url: str) -> bytes:
@@ -52,19 +54,23 @@ def _download(url: str) -> bytes:
 def _download_archive(sources: tuple[str, ...], magic: bytes) -> bytes:
     """Download the first source that actually returns the expected archive."""
     problems = []
+    # Each source gets a few tries: Windows has only one, so a single network
+    # blip on it used to fail the whole release build.
     for url in sources:
-        try:
-            payload = _download(url)
-        except Exception as exc:  # noqa: BLE001 - any failure moves to the next
-            problems.append(f"{url}: {exc}")
-            print(f"  failed: {exc}")
-            continue
-        if not payload.startswith(magic):
-            head = payload[:80].decode("utf-8", "replace").strip()
-            problems.append(f"{url}: not an archive (starts with {head!r})")
-            print("  failed: response was not an archive")
-            continue
-        return payload
+        for attempt in range(1, ATTEMPTS + 1):
+            try:
+                payload = _download(url)
+            except Exception as exc:  # noqa: BLE001 - any failure is retried
+                problems.append(f"{url} (try {attempt}): {exc}")
+                print(f"  failed: {exc}")
+            else:
+                if payload.startswith(magic):
+                    return payload
+                head = payload[:80].decode("utf-8", "replace").strip()
+                problems.append(f"{url} (try {attempt}): not an archive (starts with {head!r})")
+                print("  failed: response was not an archive")
+            if attempt < ATTEMPTS:
+                time.sleep(5 * attempt)
     raise RuntimeError("could not download ffmpeg:\n  " + "\n  ".join(problems))
 
 

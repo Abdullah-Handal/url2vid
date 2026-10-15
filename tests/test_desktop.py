@@ -97,3 +97,17 @@ class TestWindowCheck:
 
     def test_a_page_that_never_loads_fails(self):
         assert desktop._window_renders(_FakeWindow(False, [3]), timeout=0.1) is False
+
+
+class TestJsApi:
+    def test_exposes_only_its_methods_to_the_page(self):
+        """pywebview walks every public attribute of the js_api object.
+
+        A public ``window`` attribute sent it through the entire native window
+        object graph on each page load, so on Windows the page's bridge took
+        minutes to appear and the app silently fell back to browser mode.
+        """
+        api = desktop.Api()
+        api._window = object()
+        public = [name for name in dir(api) if not name.startswith("_")]
+        assert public == ["choose_folder", "reveal_downloads"]

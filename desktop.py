@@ -128,7 +128,11 @@ class Api:
     """Methods the page can call as ``window.pywebview.api.*``."""
 
     def __init__(self) -> None:
-        self.window = None
+        # Private on purpose: pywebview exposes every public attribute of this
+        # object to the page, recursing into it. A public window made it walk
+        # the whole WinForms object graph on each page load, so the bridge
+        # took minutes to appear and the UI fell back to browser mode.
+        self._window = None
 
     def choose_folder(self) -> dict:
         """Open the OS folder picker and send downloads there from now on.
@@ -139,9 +143,9 @@ class Api:
         """
         import webview
 
-        if self.window is None:
+        if self._window is None:
             return {"ok": False, "error": "No window."}
-        picked = self.window.create_file_dialog(
+        picked = self._window.create_file_dialog(
             webview.FOLDER_DIALOG, directory=str(downloader.DOWNLOAD_DIR)
         )
         if not picked:
@@ -191,7 +195,7 @@ def _open_window(url: str, api: Api, on_start=None) -> bool:
             min_size=MIN_SIZE,
             js_api=api,
         )
-        api.window = window
+        api._window = window
         if on_start:
             webview.start(on_start, window)
         else:

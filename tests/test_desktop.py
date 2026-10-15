@@ -76,7 +76,7 @@ class TestDownloadFolder:
 
 
 class _FakeWindow:
-    def __init__(self, loaded: bool, counts: list[int]):
+    def __init__(self, loaded: bool, counts: list[bool]):
         import threading
         from types import SimpleNamespace
 
@@ -93,10 +93,10 @@ class _FakeWindow:
 class TestWindowCheck:
     def test_waits_for_react_to_mount(self, monkeypatch):
         monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
-        assert desktop._window_renders(_FakeWindow(True, [0, 0, 3]), timeout=5) is True
+        assert desktop._window_renders(_FakeWindow(True, [False, False, True]), timeout=5) is True
 
     def test_a_page_that_never_loads_fails(self):
-        assert desktop._window_renders(_FakeWindow(False, [3]), timeout=0.1) is False
+        assert desktop._window_renders(_FakeWindow(False, [True]), timeout=0.1) is False
 
 
 class TestJsApi:

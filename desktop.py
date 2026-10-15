@@ -206,14 +206,21 @@ def _open_window(url: str, api: Api, on_start=None) -> bool:
         return False
 
 
+# The UI has mounted, and the Python bridge (folder picker) is reachable.
+_RENDERED_JS = (
+    "document.getElementById('root').childElementCount > 0 && "
+    "typeof (window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder) === 'function'"
+)
+
+
 def _window_renders(window, timeout: float = 60.0) -> bool:
-    """True once the page inside the window has mounted the React UI."""
+    """True once the page has mounted the React UI and can reach Python."""
     if not window.events.loaded.wait(timeout):
         return False
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            if window.evaluate_js("document.getElementById('root').childElementCount"):
+            if window.evaluate_js(_RENDERED_JS):
                 return True
         except Exception:  # noqa: BLE001 - the page may still be loading
             pass

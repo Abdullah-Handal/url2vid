@@ -85,8 +85,10 @@ def download_once(url: str, height: int | None, list_only: bool = False) -> int:
     if final is None:
         return 1
     if final.status == jobs.DONE:
-        console.print(f"[bright_green]✓ Saved[/] {final.filename or ''}", soft_wrap=True)
-        console.print(f"[dim]  in {downloader.DOWNLOAD_DIR}[/]", soft_wrap=True)
+        # Escaped: every saved name carries "[id]" / "[1080p]" tags, which Rich
+        # would otherwise swallow as markup or reject outright.
+        console.print(f"[bright_green]✓ Saved[/] {escape(final.filename or '')}", soft_wrap=True)
+        console.print(f"[dim]  in {escape(str(downloader.DOWNLOAD_DIR))}[/]", soft_wrap=True)
         return 0
     if final.status == jobs.CANCELLED:
         console.print("[grey50]Cancelled.[/]")

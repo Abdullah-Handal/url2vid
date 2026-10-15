@@ -157,18 +157,19 @@ export default function App() {
   }, [url, say, startDownload]);
 
   const pickFolder = useCallback(async () => {
-    if (isNative) {
-      const result = await native.chooseFolder();
-      if (result.cancelled) return;
-      if (!result.ok || !result.download_dir) {
-        say("error", result.error ?? "Could not change the folder.");
+    try {
+      if (isNative) {
+        // A Python exception in the bridge arrives as a rejected promise.
+        const result = await native.chooseFolder();
+        if (result.cancelled) return;
+        if (!result.ok || !result.download_dir) {
+          say("error", result.error ?? "Could not change the folder.");
+          return;
+        }
+        setDefaultDir(result.download_dir);
+        say("ok", `Videos will be saved to ${result.download_dir} from now on.`);
         return;
       }
-      setDefaultDir(result.download_dir);
-      say("ok", `Videos will be saved to ${result.download_dir} from now on.`);
-      return;
-    }
-    try {
       const picked = await folders.pickFolder();
       if (!picked) return;
       setHandle(picked);

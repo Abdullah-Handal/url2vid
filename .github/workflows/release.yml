@@ -46,7 +46,12 @@ jobs:
           # PyGObject has no cp314 wheel, so pip builds it from source and
           # needs the cairo and girepository headers to do that.
           # xvfb gives the smoke test a display to open the real window on.
+          # gir1.2-girepository-3.0: without it PyInstaller cannot query the
+          # GI modules ("Namespace GIRepository not available"), skips their
+          # typelibs and gi.overrides, and the frozen app's GTK backend breaks
+          # (GLib.idle_add raises, so the page's bridge never loads).
           sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+                                  gir1.2-girepository-3.0 \
                                   pkg-config libcairo2-dev python3-dev xvfb
           # The girepository dev package was renamed; accept either.
           sudo apt-get install -y libgirepository-2.0-dev \

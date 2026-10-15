@@ -1,9 +1,11 @@
 name: Build desktop app
 
 # Tag a release to publish installers:  git tag v0.1.0 && git push --tags
+# Pull requests run the same build and smoke tests, but publish nothing.
 on:
   push:
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -43,8 +45,9 @@ jobs:
           sudo apt-get update
           # PyGObject has no cp314 wheel, so pip builds it from source and
           # needs the cairo and girepository headers to do that.
+          # xvfb gives the smoke test a display to open the real window on.
           sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
-                                  pkg-config libcairo2-dev python3-dev
+                                  pkg-config libcairo2-dev python3-dev xvfb
           # The girepository dev package was renamed; accept either.
           sudo apt-get install -y libgirepository-2.0-dev \
             || sudo apt-get install -y libgirepository1.0-dev
@@ -59,20 +62,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller pywebview
-          if [ "$RUNNER_OS" = "Linux" ]; then pip install PyGObject; fi
+          # Pinned to the versions that built and passed the smoke test, so a
+          # new release of any of them cannot silently change what ships.
+          pip install pyinstaller==6.22.0 pywebview==6.2.1
+          if [ "$RUNNER_OS" = "Linux" ]; then pip install PyGObject==3.56.3; fi
           # pywebview's Windows backend is WinForms, which is reached through
           # pythonnet. Installing pywebview alone builds an app that cannot
           # open a window at all.
-          if [ "$RUNNER_OS" = "Windows" ]; then pip install pythonnet; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then pip install pythonnet==3.1.0; fi
         shell: bash
 
       # The suite covers what packaging changes about the app, so it runs
       # before anything is built rather than after something ships broken.
       - name: Run the test suite
-        run: |
-          pip install pytest pytest-asyncio
-          python -m pytest -q
+        run: python -m pytest -q
         shell: bash
 
       - name: Fetch static ffmpeg
@@ -81,8 +84,15 @@ jobs:
       - name: Package
         run: pyinstaller url2vid.spec --noconfirm --log-level WARN
 
+      # Serves, resolves a URL, converts a local clip to MP3 with the bundled
+      # ffmpeg, and opens the real window until the UI has rendered in it.
       - name: Smoke test the bundle
-        run: python scripts/smoke_test.py
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python scripts/smoke_test.py --window
+          else
+            python scripts/smoke_test.py --window
+          fi
         shell: bash
 
       - name: Archive (Linux)
@@ -95,12 +105,29 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v',''
-          if (-not $version) { $version = "0.0.0" }
+          # Only a tag is a version; a branch or PR ref ("12/merge") is not.
+          $version = "0.0.0"
+          if ("${{ github.ref_type }}" -eq "tag") { $version = "${{ github.ref_name }}" -replace '^v','' }
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc "/DAppVersion=$version" packaging\url2vid.iss
           Copy-Item installer\url2vid-windows-setup.exe url2vid-windows-setup.exe
+
+      # Installs the way a user would (silently, no admin), smoke tests the
+      # installed copy, then checks the uninstaller removes it.
+      - name: Smoke test the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "url2vid-installed"
+          $setup = Start-Process .\url2vid-windows-setup.exe -Wait -PassThru `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`""
+          if ($setup.ExitCode -ne 0) { throw "installer exited with $($setup.ExitCode)" }
+          python scripts/smoke_test.py "$dir\url2vid.exe"
+          if ($LASTEXITCODE -ne 0) { throw "the installed app failed its smoke test" }
+          $remove = Start-Process "$dir\unins000.exe" -Wait -PassThru `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          if ($remove.ExitCode -ne 0) { throw "uninstaller exited with $($remove.ExitCode)" }
 
       # Also a no-install single file, for a USB stick. It unpacks itself on
       # every launch, so it starts noticeably slower than the installed copy.
@@ -112,6 +139,13 @@ jobs:
         run: |
           pyinstaller url2vid.spec --noconfirm --log-level WARN --distpath dist-onefile
           cp dist-onefile/url2vid.exe url2vid-windows-portable.exe
+
+      - name: Smoke test the portable exe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python scripts/smoke_test.py (Resolve-Path url2vid-windows-portable.exe).Path
+          if ($LASTEXITCODE -ne 0) { throw "the portable exe failed its smoke test" }
 
       - uses: actions/upload-artifact@v4
         with:

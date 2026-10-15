@@ -56,6 +56,23 @@ def _reserve_port(preferred: int = 0) -> tuple[socket.socket, int]:
     return sock, sock.getsockname()[1]
 
 
+def _ensure_download_dir() -> Path:
+    """Make sure the download folder exists, falling back to the OS default.
+
+    The saved folder may be on a USB stick or network drive that is not there
+    today. Failing to create it used to kill the windowed app at launch with
+    nothing on screen. The saved choice is left alone so it works again once
+    the drive is back.
+    """
+    try:
+        downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.warning("download folder %s unavailable (%s); using the default", downloader.DOWNLOAD_DIR, exc)
+        downloader.DOWNLOAD_DIR = paths.default_download_dir()
+        downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    return downloader.DOWNLOAD_DIR
+
+
 class _Server:
     """uvicorn on a background thread, with a shutdown that actually returns."""
 
@@ -200,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    downloader.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_download_dir()
 
     sock, port = _reserve_port(args.port)
     url = f"http://127.0.0.1:{port}"

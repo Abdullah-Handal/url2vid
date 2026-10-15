@@ -53,3 +53,23 @@ class TestPortSelection:
         finally:
             first_sock.close()
             second_sock.close()
+
+
+class TestDownloadFolder:
+    def test_missing_saved_folder_falls_back_to_the_default(self, tmp_path, monkeypatch):
+        """A saved folder on an unplugged drive must not stop the app starting."""
+        from app import downloader, paths
+
+        blocker = tmp_path / "not-a-folder"
+        blocker.write_text("a file where a folder should be")
+        monkeypatch.setattr(downloader, "DOWNLOAD_DIR", blocker / "videos")
+        monkeypatch.setattr(paths, "default_download_dir", lambda: tmp_path / "Downloads")
+
+        assert desktop._ensure_download_dir() == tmp_path / "Downloads"
+        assert (tmp_path / "Downloads").is_dir()
+
+    def test_an_available_folder_is_kept(self, tmp_path, monkeypatch):
+        from app import downloader
+
+        monkeypatch.setattr(downloader, "DOWNLOAD_DIR", tmp_path / "chosen")
+        assert desktop._ensure_download_dir() == tmp_path / "chosen"

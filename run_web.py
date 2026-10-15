@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import uvicorn
 
@@ -17,6 +18,8 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true", help="restart on code changes")
     args = parser.parse_args()
 
+    # The server refuses requests addressed to any other hostname.
+    os.environ["URL2VID_HOST"] = args.host
     print(f"url2vid → http://{args.host}:{args.port}")
     uvicorn.run("server.main:app", host=args.host, port=args.port, reload=args.reload)
 

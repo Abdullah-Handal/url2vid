@@ -13,7 +13,8 @@ from app import downloader, jobs
 from app.jobs import registry
 from server.main import app
 
-client = TestClient(app)
+# The server only answers to loopback names; TestClient's default is "testserver".
+client = TestClient(app, base_url="http://127.0.0.1")
 
 
 @pytest.fixture(autouse=True)
@@ -151,3 +152,33 @@ class TestConfig:
         body = client.get("/api/config").json()
         assert body["download_dir"] == str(downloader.DOWNLOAD_DIR)
         assert body["max_concurrent"] >= 1
+
+
+class TestRequestValidation:
+    def test_rejects_a_nonsense_bitrate(self):
+        body = {"url": "https://x.com/a", "audio_only": True, "audio_kbps": 5}
+        assert client.post("/api/download", json=body).status_code == 422
+
+    def test_rejects_a_negative_height(self):
+        assert client.post("/api/download", json={"url": "https://x.com/a", "height": -1}).status_code == 422
+
+
+class TestLocalOnly:
+    def test_refuses_a_cross_site_post(self):
+        """A bodiless POST needs no CORS preflight, so the Origin is the only tell."""
+        job = registry.create("https://x.com/a", 720, "Clip")
+        response = client.post(f"/api/jobs/{job.id}/cancel", headers={"Origin": "https://evil.example"})
+        assert response.status_code == 403
+        assert not registry.get(job.id).cancel_requested
+
+    def test_refuses_a_foreign_host_header(self):
+        """DNS rebinding arrives with the attacker's hostname in Host."""
+        assert client.get("/api/jobs", headers={"Host": "evil.example:8000"}).status_code == 403
+
+    def test_accepts_the_app_itself_and_the_dev_server(self):
+        assert client.get("/api/jobs", headers={"Origin": "http://127.0.0.1:51234"}).status_code == 200
+        assert client.get("/api/jobs", headers={"Origin": "http://localhost:5173"}).status_code == 200
+
+    def test_accepts_localhost(self):
+        local = TestClient(app, base_url="http://localhost:8000")
+        assert local.get("/api/jobs").status_code == 200

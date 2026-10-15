@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -34,6 +36,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Hostnames this server answers to. run_web.py adds its --host here when told
+# to listen beyond loopback.
+TRUSTED_HOSTS = {"127.0.0.1", "localhost", "::1"} | (
+    {os.environ["URL2VID_HOST"]} if os.environ.get("URL2VID_HOST") else set()
+)
+
+
+@app.middleware("http")
+async def local_only(request: Request, call_next):
+    """Refuse requests that come from another website.
+
+    CORS alone does not stop a page elsewhere from firing a bodiless POST
+    (cancel, clear, update) at this port, and a DNS-rebinding page can read the
+    job list and downloaded files. Both show up as a foreign Origin or Host.
+    """
+    origin = request.headers.get("origin")
+    hosts = [request.url.hostname] + ([urlparse(origin).hostname] if origin else [])
+    if any(host not in TRUSTED_HOSTS for host in hosts):
+        return JSONResponse({"detail": "Requests from other sites are not accepted."}, status_code=403)
+    return await call_next(request)
+
 
 class ProbeRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
@@ -41,11 +64,13 @@ class ProbeRequest(BaseModel):
 
 class DownloadRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
-    height: int | None = None
-    title: str = ""
+    height: int | None = Field(default=None, ge=1)
+    title: str = Field(default="", max_length=1000)
     audio: bool = True
     audio_only: bool = False
-    audio_kbps: int | None = None
+    # Handed to ffmpeg as the MP3 bitrate; below 10 yt-dlp reads it as a VBR
+    # level instead, so only real bitrates are accepted.
+    audio_kbps: int | None = Field(default=None, ge=32, le=320)
 
 
 def _require_http(url: str) -> str:

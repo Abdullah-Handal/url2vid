@@ -23,10 +23,10 @@ Every version, with notes: **[Releases](https://github.com/Abdullah-Handal/url2v
 
 ### Windows
 
-Run the **setup** file. It installs into your Documents folder, adds a Desktop
-shortcut and a Start-menu entry, and asks for no administrator rights — so it
-works on a locked-down machine without a UAC prompt. Uninstalling leaves your
-downloaded videos alone.
+Run the **setup** file. It installs for your user only (under
+`%LOCALAPPDATA%\Programs\url2vid`), adds a Desktop shortcut and a Start-menu
+entry, and asks for no administrator rights — so it works on a locked-down
+machine without a UAC prompt. Uninstalling leaves your downloaded videos alone.
 
 Windows will show a blue **"Windows protected your PC"** box on first run,
 because the file is not signed by a paid certificate. Click **More info →

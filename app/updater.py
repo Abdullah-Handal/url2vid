@@ -11,6 +11,7 @@ launch. Nothing overwrites the bundle itself, which may be read-only.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import shutil
@@ -56,8 +57,8 @@ def _same_version(a: str, b: str) -> bool:
     return parts(a) == parts(b)
 
 
-def _wheel_url(version: str) -> str:
-    """The pure-Python wheel for a given yt-dlp release.
+def _wheel_url(version: str) -> tuple[str, str]:
+    """The pure-Python wheel for a given yt-dlp release, and its SHA-256.
 
     A wheel is a zip, so it can be unpacked directly. That avoids needing pip,
     which is not present inside a PyInstaller bundle.
@@ -66,7 +67,7 @@ def _wheel_url(version: str) -> str:
         data = json.load(response)
     for item in data["releases"].get(version, []):
         if item["packagetype"] == "bdist_wheel" and item["filename"].endswith("-none-any.whl"):
-            return item["url"]
+            return item["url"], item["digests"]["sha256"]
     raise RuntimeError(f"No portable wheel published for yt-dlp {version}.")
 
 
@@ -95,9 +96,13 @@ def update(force: bool = False) -> dict:
     if not force and _same_version(current, latest):
         return {"updated": False, "current": current, "latest": latest, "reason": "already current"}
 
-    url = _wheel_url(latest)
+    url, sha256 = _wheel_url(latest)
     with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
         payload = response.read()
+    # This code runs inside the app on the next launch, so a truncated or
+    # tampered download must never be unpacked.
+    if hashlib.sha256(payload).hexdigest() != sha256:
+        raise RuntimeError("The downloaded yt-dlp did not match PyPI's checksum; nothing was changed.")
 
     target = paths.deps_dir()
     staging = target.parent / "deps.new"

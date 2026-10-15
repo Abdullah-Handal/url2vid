@@ -13,6 +13,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -170,8 +171,11 @@ class Api:
         return {"ok": True}
 
 
-def _open_window(url: str, api: Api) -> bool:
-    """Show the app in a native window. False if no webview is available."""
+def _open_window(url: str, api: Api, on_start=None) -> bool:
+    """Show the app in a native window. False if no webview is available.
+
+    ``on_start(window)`` runs on its own thread once the GUI loop is up.
+    """
     try:
         import webview
     except ImportError:
@@ -188,11 +192,29 @@ def _open_window(url: str, api: Api) -> bool:
             js_api=api,
         )
         api.window = window
-        webview.start()
+        if on_start:
+            webview.start(on_start, window)
+        else:
+            webview.start()
         return True
     except Exception as exc:  # noqa: BLE001 - any backend failure falls back
         log.warning("native window unavailable: %s", exc)
         return False
+
+
+def _window_renders(window, timeout: float = 60.0) -> bool:
+    """True once the page inside the window has mounted the React UI."""
+    if not window.events.loaded.wait(timeout):
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if window.evaluate_js("document.getElementById('root').childElementCount"):
+                return True
+        except Exception:  # noqa: BLE001 - the page may still be loading
+            pass
+        time.sleep(0.5)
+    return False
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -201,6 +223,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--serve",
         action="store_true",
         help="run the server without opening a window (used by the build's smoke test)",
+    )
+    parser.add_argument(
+        "--check-window",
+        action="store_true",
+        help="open the window, confirm the UI renders, then exit (used by the build's smoke test)",
     )
     parser.add_argument(
         "--port", type=int, default=0, help="port to listen on; 0 lets the OS choose"
@@ -242,6 +269,24 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             server.stop()
         return 0
+
+    if args.check_window:
+        # Proves the part --serve never touches: the webview backend (WinForms
+        # via pythonnet + WebView2 on Windows, GTK + WebKit on Linux) loads in
+        # the frozen build and actually renders the page.
+        result = {}
+
+        def check(window) -> None:
+            result["ok"] = _window_renders(window)
+            window.destroy()
+
+        try:
+            opened = _open_window(url, Api(), on_start=check)
+        finally:
+            server.stop()
+        ok = opened and result.get("ok", False)
+        print("url2vid window rendered" if ok else "url2vid window did not render", flush=True)
+        return 0 if ok else 1
 
     try:
         if not _open_window(url, Api()):
